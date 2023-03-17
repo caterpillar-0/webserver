@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <errno.h>  
 #include "locker/locker.h"
+#include <exception>
+#include <errno.h>
 
 #define MAX_FD 65535 //最大的文件描述符数目
 #define MAX_EVENT_NUMBER 10000 //监听的最大事件数量
@@ -54,6 +56,10 @@ int main(int argc, char* argv[]){
 
     http_conn* users = new http_conn[MAX_FD];
     int listenfd = socket(PF_INET, SOCK_STREAM, 0);
+    if(listenfd == -1){
+        perror("socket");
+        return -1;
+    }
 
     struct sockaddr_in saddr;
     saddr.sin_family = AF_INET;
@@ -62,9 +68,21 @@ int main(int argc, char* argv[]){
 
     int reuse = 1;//端口复用
     int ret;
-    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    ret = bind(listenfd, (const sockaddr*)&saddr, sizeof(saddr));
+    ret = setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    if(ret == -1){
+        perror("setsockopt");
+        return -1;
+    }
+    ret = bind(listenfd, (struct sockaddr*)&saddr, sizeof(saddr));
+    if(ret == -1){
+        perror("bind");
+        return -1;
+    }
     ret = listen(listenfd, 5);
+    if(ret == -1){
+        perror("listen");
+        return -1;
+    }
 
     //设置epoll,epoll底层是红黑树和双向链表，其中epoll_wait返回传出参数
     //代表有事件的fd
@@ -86,12 +104,13 @@ int main(int argc, char* argv[]){
         //遍历监听有事件的fd
         for(int i = 0; i < number; i++){
             int sockfd = events[i].data.fd;
+            //printf("-----循环\n");
             if(sockfd == listenfd){
                 //new client connection
                 
                 struct sockaddr_in caddr;
                 socklen_t len = sizeof(caddr);
-                int connfd = connect(sockfd, (const sockaddr*)&caddr, len);
+                int connfd = accept(sockfd, (struct sockaddr*)&caddr, &len);
                 if(connfd < 0){
                     printf("errno is : %d\n", errno);
                     continue;
@@ -109,7 +128,9 @@ int main(int argc, char* argv[]){
                     EPOLLHUP-----Hang up happened on the associated file descriptor.
                 */
                 users[sockfd].close_conn();
+                printf("--close_conn--\n");
             }else if(events[i].events & EPOLLIN){
+                printf("-----EPOLLIN----\n");
                 if(users[sockfd].read()){
                     //主线程完成读数据，交给任务队列，业务逻辑
                     pool->append(users + sockfd);

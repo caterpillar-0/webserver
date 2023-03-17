@@ -15,7 +15,14 @@ void addfd(int epollfd, int fd, bool one_shot){
     epoll_event event;
     event.data.fd = fd;
     event.events = EPOLLIN | EPOLLRDHUP;
+    if(one_shot) 
+    {
+        // 防止同一个通信被不同的线程处理
+        event.events |= EPOLLONESHOT;
+    }
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
+    // 设置文件描述符非阻塞
+    setnonblocking(fd);
 }
 
 //从epoll中移除fd
