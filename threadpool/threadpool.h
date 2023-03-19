@@ -111,6 +111,7 @@ void threadpool<T>::run(){
         T* request = m_workque.front();
         m_workque.pop_front();
         request->process();//调用任务函数
+        printf("processing...\n");
     }
     return;
 }
