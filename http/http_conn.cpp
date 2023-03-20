@@ -28,7 +28,7 @@ const char* error_500_form = "There was an unusual problem serving the requested
 int setnonblocking(int fd){     
     int old_option = fcntl(fd, F_GETFD);
     int new_option = old_option | O_NONBLOCK;
-    fcntl(fd, F_SETFD, new_option);
+    fcntl(fd, F_SETFL, new_option);
     return old_option;
 }
 
@@ -46,7 +46,7 @@ void addfd(int epollfd, int fd, bool one_shot){
     epoll_event event;
     event.data.fd = fd;
     //event.events = EPOLLIN | EPOLLRDHUP;
-    event.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
+    event.events = EPOLLIN | EPOLLRDHUP;
     if(one_shot) 
     {
         event.events |= EPOLLONESHOT;   /* 防止同一个通信被不同的线程处理 */
@@ -74,12 +74,18 @@ int http_conn::m_user_count = 0;
 /* init private info connection */
 void http_conn::init(){
     m_check_state = CHECK_STATE_REQUESTLINE;
+    m_linger = false;   /* By default, links are not maintained */
 
     m_start_line = 0;
     m_read_idx = 0;
     m_version = 0;
     m_url = 0;
     m_method = GET;
+    m_content_length = 0;
+    m_host = 0;
+    m_start_line = 0;
+    m_read_idx = 0;
+    bzero(m_real_file, FILENAME_LEN);
     bzero(m_read_buf, READ_BUFFER_SIZE);    /*clear read_buf */
 
 }
@@ -158,7 +164,7 @@ http_conn::HTTP_CODE http_conn::process_read(){
 /* parse headers, get method, file name, version*/
 http_conn::HTTP_CODE http_conn::parse_request_line(char* text){
     /* get method */
-    m_url = strpbrk(text, "\t"); /* GET /index.html HTTP/1.1 */
+    m_url = strpbrk(text, " \t"); /* GET /index.html HTTP/1.1 */
     if(!m_url){
         return BAD_REQUEST;
     }
@@ -170,7 +176,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char* text){
         return BAD_REQUEST;
     }
     /* get m_version */
-    m_version = strpbrk(m_url, "\t");
+    m_version = strpbrk(m_url, " \t");
     if(!m_version){
         return BAD_REQUEST;
     }
@@ -186,7 +192,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char* text){
     if(!m_url || m_url[0] != '/'){
         return BAD_REQUEST;
     }
-    m_check_state = CHECK_STATE_REQUESTLINE;    /* convert master machine status */
+    m_check_state = CHECK_STATE_HEADER;    /* convert master machine status */
     return NO_REQUEST;
 }
 
@@ -215,7 +221,7 @@ http_conn::HTTP_CODE http_conn::parse_headers(char* text){
         text += strspn(text, " \t");
         m_host = text;
     }else{
-        printf("oop !unknow header %s\n", text);
+        //printf("oop !unknow header %s\n", text);
     }
     return NO_REQUEST;  /* continue to parse */
 }
@@ -235,8 +241,10 @@ http_conn::HTTP_CODE http_conn::parse_content(char* text){
     映射到内存地址m_file_address处，并告诉调用者获取文件成功
 */
 http_conn::HTTP_CODE http_conn::do_request(){
+    printf("do request!\n");
     
     strcpy(m_real_file, doc_root);  /* char *strcpy(char *dest, const char *src); */
+    printf("doc_root:%s, m_real_file:%s\n", doc_root, m_real_file);
     int len = strlen(doc_root);
     strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);  /* char *strncpy(char *dest, const char *src, size_t n); */
 
@@ -316,9 +324,11 @@ bool http_conn::read(){
         return false;
     }
     int bytes_read = 0;
+    int num = 0;
     while(true){
         /* ET触发，循环读完 */
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+        printf("bytes_read = %d, num = %d\n", bytes_read, num++);
         if(bytes_read == -1){
             if(errno == EAGAIN || errno == EWOULDBLOCK){
                 break;  /* 没有数据 */
