@@ -37,7 +37,7 @@ public:
 
 
 //-----------------------template class number function-------------------
-//------------ctor------------------
+
 template <typename T>
 threadpool<T>::threadpool(int pthread_num, int max_request):
 m_pthread_num(pthread_num), m_max_request(max_request), 
@@ -68,14 +68,11 @@ m_stop(false)
     }
 };
 
-
-//-----------dtor--------------
 template <typename T>
 threadpool<T>::~threadpool(){
     delete []m_threads;
 }
 
-//----------------append-----------------
 template <typename T>
 bool threadpool<T>::append(T* request){
     m_quelocker.lock();

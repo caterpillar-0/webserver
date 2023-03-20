@@ -30,8 +30,8 @@ int setnonblocking(int fd){
     int new_option = old_option | O_NONBLOCK;
     fcntl(fd, F_SETFL, new_option);
     return old_option;
-}
 
+}
 /*
     reset EPOLLONESHOT events on fd, to ensure triggered next time
 */
@@ -66,6 +66,81 @@ void removefd(int epollfd, int fd){
 
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
+
+
+/*
+    public memeber function
+*/
+
+/* deal client request */
+void http_conn::process(){
+    /* Parse http request */
+    HTTP_CODE read_ret = process_read();
+    if(read_ret == NO_REQUEST){
+        modfd(m_epollfd, m_sockfd, EPOLLIN);
+        return;
+    }
+
+    /* Generate response */
+    printf("generate response\n");
+    bool write_ret = process_write(read_ret);
+    if(!write_ret){
+        close_conn();
+    }
+    modfd(m_epollfd, m_sockfd, EPOLLOUT);
+}
+
+void http_conn::init(int sockfd, const sockaddr_in &caddr){
+    m_sockfd = sockfd;
+    m_address = caddr;
+    
+    int reuse = 1;  /* set port reuse */
+    setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    addfd(m_epollfd, m_sockfd, true);
+    m_user_count++;
+
+    init();
+}
+
+void http_conn::close_conn(){
+    if(m_sockfd != -1){
+        removefd(m_epollfd, m_sockfd);
+        m_sockfd = -1;
+        m_user_count--;     /* 关闭一个连接，将客户总数-1 */
+    }
+}
+
+bool http_conn::read(){
+    printf("read---------\n");
+    if(m_read_idx >= READ_BUFFER_SIZE){
+        return false;
+    }
+    int bytes_read = 0;
+    int num = 0;
+    while(true){
+        /* ET触发，循环读完 */
+        bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+        printf("bytes_read = %d, num = %d\n", bytes_read, num++);
+        if(bytes_read == -1){
+            if(errno == EAGAIN || errno == EWOULDBLOCK){
+                break;  /* 没有数据 */
+            }
+            return false;
+        }else if(bytes_read == 0){
+            printf("------close-------\n");
+            return false;   /* client close */
+        }
+        m_read_idx += bytes_read;
+        printf("read data: %s\n", m_read_buf);
+    }
+    return true;
+}
+
+bool http_conn::write(){
+    printf("write\n");
+    return true;
+}
+
 
 /*
     private member function
@@ -281,75 +356,54 @@ http_conn::HTTP_CODE http_conn::do_request(){
 
 
 
-/*
-    public memeber function
-*/
 
-/* deal client request */
-void http_conn::process(){
-    /* Parse http request */
-    HTTP_CODE read_ret = process_read();
-    if(read_ret == NO_REQUEST){
-        modfd(m_epollfd, m_sockfd, EPOLLIN);
-        return;
+bool http_conn::process_write(http_conn::HTTP_CODE ret){
+    switch(ret){
+        case INTERNAL_ERROR:
+            add_status_line(500, error_500_title);
+
     }
 
-    /* Generate response */
-    printf("generate response\n");
+    return true;
 }
 
-void http_conn::init(int sockfd, const sockaddr_in &caddr){
-    m_sockfd = sockfd;
-    m_address = caddr;
-    
-    int reuse = 1;  /* set port reuse */
-    setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    addfd(m_epollfd, m_sockfd, true);
-    m_user_count++;
-
-    init();
-}
-
-void http_conn::close_conn(){
-    if(m_sockfd != -1){
-        removefd(m_epollfd, m_sockfd);
-        m_sockfd = -1;
-        m_user_count--;     /* 关闭一个连接，将客户总数-1 */
-    }
-}
-
-bool http_conn::read(){
-    printf("read---------\n");
-    if(m_read_idx >= READ_BUFFER_SIZE){
+/* 往写缓冲中写入待发送的数据 */
+bool http_conn::add_response( const char* format, ... ){
+    if(m_write_idx >= WRITE_BUFFER_SIZE){
         return false;
     }
-    int bytes_read = 0;
-    int num = 0;
-    while(true){
-        /* ET触发，循环读完 */
-        bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
-        printf("bytes_read = %d, num = %d\n", bytes_read, num++);
-        if(bytes_read == -1){
-            if(errno == EAGAIN || errno == EWOULDBLOCK){
-                break;  /* 没有数据 */
-            }
-            return false;
-        }else if(bytes_read == 0){
-            printf("------close-------\n");
-            return false;   /* client close */
-        }
-        m_read_idx += bytes_read;
-        printf("read data: %s\n", m_read_buf);
+    va_list arg_list;
+    va_start(arg_list, format);
+    /* int vsnprintf(char *str, size_t size, const char *format, va_list ap); */
+    int len = vsnprintf(m_write_buf + m_write_idx, WRITE_BUFFER_SIZE - m_write_idx - 1, format, arg_list);
+    if(len >= (WRITE_BUFFER_SIZE - m_write_idx - 1)){
+        return false;
     }
+    m_write_idx += len;
+    va_end(arg_list);
+
     return true;
 }
 
-bool http_conn::write(){
-    printf("write\n");
+bool http_conn::add_status_line(int status, const char* title){
+    return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
+}
+bool http_conn::add_headers(int content_length){
     return true;
 }
 
+bool http_conn::add_content(const char* content){
 
+}
+bool http_conn::add_content_type(){
 
+}
+bool http_conn::add_content_length(int content_length){
 
+}
+bool http_conn::add_linger(){
 
+}
+bool http_conn::add_blank_linger(){
+
+}

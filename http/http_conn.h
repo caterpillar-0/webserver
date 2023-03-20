@@ -13,6 +13,12 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <stdarg.h>
+#include <sys/uio.h>
+#include <signal.h>
+#include <netinet/in.h>
+#include <pthread.h>
+
 
 //http_conn是任务类，线程的执行函数http_conn->run()
 class http_conn
@@ -62,15 +68,29 @@ private:
     /*
         private member function
     */
-   void init();
-   HTTP_CODE process_read();    /* parse http reqeust*/
-   HTTP_CODE do_request();
+    void init();
+
+    /* parse http reqeust*/
+    HTTP_CODE process_read();    
    
-   HTTP_CODE parse_request_line(char* text);
-   HTTP_CODE parse_headers(char* text);
-   HTTP_CODE parse_content(char* text);
-   LINE_STATE parse_line();
-   char* get_line(){return m_read_buf + m_start_line;};
+    char* get_line(){return m_read_buf + m_start_line;};
+    LINE_STATE parse_line();
+    HTTP_CODE parse_request_line(char* text);
+    HTTP_CODE parse_headers(char* text);
+    HTTP_CODE parse_content(char* text);
+    HTTP_CODE do_request();
+
+    /* response http message */
+    bool process_write(HTTP_CODE ret);
+
+    bool add_response( const char* format, ... );
+    bool add_status_line(int status, const char* title);
+    bool add_headers(int content_length);
+    bool add_content(const char* content);
+    bool add_content_type();
+    bool add_content_length(int content_length);
+    bool add_linger();
+    bool add_blank_linger();
 
   
 private:
@@ -97,6 +117,9 @@ private:
     char m_real_file[ FILENAME_LEN ];
     /* 目标文件的状态。通过它我们可以判断文件是否存在、是否为目录、是否可读，并获取文件大小等信息 */
     struct stat m_file_stat;    
+
+    char m_write_buf[WRITE_BUFFER_SIZE];    /* write buffer */
+    int m_write_idx;    /* 写缓冲区中待发送的位置 */
 
 };
 
