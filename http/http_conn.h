@@ -90,9 +90,9 @@ private:
     bool add_content_type();
     bool add_content_length(int content_length);
     bool add_linger();
-    bool add_blank_linger();
+    bool add_blank_line();
+    void unmap();
 
-  
 private:
     /*
         private member variables
@@ -113,13 +113,17 @@ private:
     char* m_host;   /* request header: Host */
 
     char* m_file_address;    /* target file mmap memeory address */
-    /* 客户请求的目标文件的完整路径，其内容等于 doc_root + m_url, doc_root是网站根目录 */
-    char m_real_file[ FILENAME_LEN ];
-    /* 目标文件的状态。通过它我们可以判断文件是否存在、是否为目录、是否可读，并获取文件大小等信息 */
-    struct stat m_file_stat;    
+    char m_real_file[ FILENAME_LEN ];   /* 客户请求的目标文件的完整路径，其内容等于 doc_root + m_url, doc_root是网站根目录 */
+    struct stat m_file_stat;    /* 目标文件的状态。通过它我们可以判断文件是否存在、是否为目录、是否可读，并获取文件大小等信息 */
+    struct iovec m_iv[2];   /* 我们将采用writev来执行写操作，所以定义下面两个成员，其中m_iv_count表示被写内存块的数量。 */
+    int m_iv_count;
 
     char m_write_buf[WRITE_BUFFER_SIZE];    /* write buffer */
     int m_write_idx;    /* 写缓冲区中待发送的位置 */
+
+    /* write bug fix add field */
+    int bytes_to_send;  
+    int bytes_have_send;    
 
 };
 

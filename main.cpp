@@ -138,6 +138,7 @@ int main(int argc, char* argv[]){
                     users[sockfd].close_conn(); /* 读完数据，关闭连接 */
                 }
             }else if(events[i].events & EPOLLOUT){
+                printf("write!\n");
                 if(!users[sockfd].write()){
                     users[sockfd].close_conn();
                 }

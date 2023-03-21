@@ -5,7 +5,7 @@
 */
 
 /* file resource root address */
-const char* doc_root = "/home/xmm/code/webserver3/webserver";
+const char* doc_root = "/home/xmm/code/webserver3/webserver/resources";
 
 /* 定义HTTP响应的一些状态信息 */
 const char* ok_200_title = "OK";
@@ -39,7 +39,7 @@ void modfd(int epollfd, int fd, int ev){
     epoll_event event;
     event.data.fd = fd;
     event.events = ev | EPOLLET | EPOLLRDHUP | EPOLLONESHOT;
-    epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, 0);
+    epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 }
 
 void addfd(int epollfd, int fd, bool one_shot){
@@ -83,7 +83,9 @@ void http_conn::process(){
 
     /* Generate response */
     printf("generate response\n");
+
     bool write_ret = process_write(read_ret);
+    printf("response:%s", m_write_buf);
     if(!write_ret){
         close_conn();
     }
@@ -138,7 +140,53 @@ bool http_conn::read(){
 
 bool http_conn::write(){
     printf("write\n");
-    return true;
+    int temp = 0;
+    int bytes_have_send = 0;    /* already send bytes */
+    int bytes_to_send = m_write_idx;
+    if(m_write_idx == 0){
+        /* 发送字节数为0， 本次响应结束 */
+        modfd(m_epollfd, m_sockfd, EPOLLIN);
+        init();
+        return true;
+    }
+    while(1){
+        /* ssize_t writev(int fd, const struct iovec *iov, int iovcnt); */
+        temp = writev(m_sockfd, m_iv, m_iv_count);
+        if(temp <= -1){
+           if(errno == EAGAIN){
+            /* 
+                如果TCP写缓冲没有空间，则等待下一轮EPOLLOUT事件， 虽然在此期间，
+                服务器无法立即接收到同一个客户的下一个请求，但可以保证连接的完整性
+            */
+                modfd(m_epollfd, m_sockfd, EPOLLOUT);
+                return true;
+           }
+           unmap(); /* 解除内存映射，释放内存空间 */
+           return false;
+        }
+        bytes_to_send -= temp;
+        bytes_have_send += temp;
+        /* 首先判断，头是否发送完毕 ,每次writev，都需要更新写数据的位置 */
+        if(bytes_have_send >= m_iv[0].iov_len){
+            m_iv[0].iov_len = 0;
+            m_iv[1].iov_base = m_file_address + (bytes_have_send - m_write_idx);
+            m_iv[1].iov_len = bytes_to_send;
+        }else{
+            m_iv[0].iov_base = m_write_buf + bytes_have_send;
+            m_iv[0].iov_len = m_iv[0].iov_len - temp;
+        }
+        if(bytes_to_send <= 0){
+            /* 没有数据发送 */
+            unmap();
+            modfd(m_epollfd, m_sockfd, EPOLLIN);
+            if(m_linger){
+                init();
+                return true;
+            }else{
+                return false;
+            }
+        }
+    }
 }
 
 
@@ -162,7 +210,10 @@ void http_conn::init(){
     m_read_idx = 0;
     bzero(m_real_file, FILENAME_LEN);
     bzero(m_read_buf, READ_BUFFER_SIZE);    /*clear read_buf */
+    bzero(m_real_file, FILENAME_LEN);
 
+    bytes_have_send = 0;
+    bytes_to_send = 0;
 }
 
 /* parse one line in http request ,flag is '\r\n' */
@@ -328,7 +379,7 @@ http_conn::HTTP_CODE http_conn::do_request(){
         stat: get file stat
     */
     if(stat(m_real_file, &m_file_stat) < 0){
-        return NO_REQUEST;
+        return NO_RESOURCE;
     }
     if(!(m_file_stat.st_mode & S_IROTH)){   /* Determine read and write permissions */
         return FORBIDDEN_REQUEST;
@@ -346,23 +397,72 @@ http_conn::HTTP_CODE http_conn::do_request(){
         mmap: map files or devices into memory
     */
     m_file_address = (char*)mmap(0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if(m_file_address == (void*)-1){
-        perror("mmap:");
-        return BAD_REQUEST;
-    }
+    // if(m_file_address == (void*)-1){
+    //     perror("mmap:");
+    //     return BAD_REQUEST;
+    // }
     close(fd);
     return FILE_REQUEST;
 }
 
 
-
-
 bool http_conn::process_write(http_conn::HTTP_CODE ret){
+    bool temp = true;
     switch(ret){
         case INTERNAL_ERROR:
+            printf("INTERNAL_ERROR\n");
             add_status_line(500, error_500_title);
-
+            add_headers(strlen(error_500_form));
+            if(!add_content(error_500_form)){
+                return false;
+            }
+            break;
+        case BAD_REQUEST:
+            printf("BAD_REQUEST\n");
+            add_status_line(400, error_400_title);
+            add_headers(strlen(error_400_form));
+            if(!add_content(error_400_form)){
+                return false;
+            }
+            break;
+        case NO_RESOURCE:
+            printf("NO_RESOURCE\n");
+            add_status_line(404, error_404_title);
+            add_headers(strlen(error_404_form));
+            if(!add_content(error_404_form)){
+                return false;
+            }
+            break;
+        case FORBIDDEN_REQUEST:
+            printf("FORBIDDEN_REQUEST\n");
+            add_status_line(403, error_403_title);
+            add_headers(strlen(error_403_form));
+            if(!add_content(error_403_form)){
+                return false;
+            }
+            break;
+        case FILE_REQUEST:
+            printf("FILE_REQUEST\n");
+            add_status_line(200, ok_200_title); 
+            add_headers(m_file_stat.st_size);
+            printf("m_file_stat.st_size:%ld\n", m_file_stat.st_size);
+            /* 此处，需要用到iovec,因为数据在不同地方，read_buffer和请求目标文件 */
+            m_iv[0].iov_base = m_write_buf;
+            m_iv[0].iov_len = m_write_idx;
+            m_iv[1].iov_base = m_file_address;
+            m_iv[1].iov_len = m_file_stat.st_size;
+            m_iv_count = 2;
+            bytes_to_send = m_write_idx + m_file_stat.st_size;
+            printf("bytes_to_read: %d\n", bytes_to_send);
+            return true;
+        default:
+            return false;
     }
+
+    m_iv[0].iov_base = m_write_buf;
+    m_iv[0].iov_len = m_write_idx;
+    m_iv_count = 1;
+    bytes_to_send = m_write_idx;
 
     return true;
 }
@@ -388,22 +488,40 @@ bool http_conn::add_response( const char* format, ... ){
 bool http_conn::add_status_line(int status, const char* title){
     return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
 }
+
 bool http_conn::add_headers(int content_length){
+    add_content_length(content_length);
+    add_content_type();
+    add_linger();
+    add_blank_line();
     return true;
 }
 
 bool http_conn::add_content(const char* content){
-
+    return add_response("%s", content);
 }
+
 bool http_conn::add_content_type(){
-
+    return add_response("Content-Type: %s\r\n", "text/html");
 }
+
 bool http_conn::add_content_length(int content_length){
-
+    return add_response("Content-Length: %d\r\n", content_length);
 }
+
 bool http_conn::add_linger(){
-
+    return add_response("Connection: %s\r\n", m_linger ? "keep-alive" : "close");
 }
-bool http_conn::add_blank_linger(){
 
+bool http_conn::add_blank_line(){
+    add_response("%s", "\r\n");
+}
+
+
+/* 对内存映射区执行munmap操作 */
+void http_conn::unmap(){
+    if(m_file_address){
+        munmap(m_file_address, m_file_stat.st_size);
+        m_file_address = 0;
+    }
 }
