@@ -107,6 +107,10 @@ void threadpool<T>::run(){
         }
         T* request = m_workque.front();
         m_workque.pop_front();
+        m_quelocker.unlock();
+        if(!request){
+            continue;
+        }
         request->process();//调用任务函数
         printf("processing...\n");
     }

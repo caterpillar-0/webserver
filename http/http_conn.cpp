@@ -26,7 +26,7 @@ const char* error_500_form = "There was an unusual problem serving the requested
 
 /* set fd non-blocking */
 int setnonblocking(int fd){     
-    int old_option = fcntl(fd, F_GETFD);
+    int old_option = fcntl(fd, F_GETFL);
     int new_option = old_option | O_NONBLOCK;
     fcntl(fd, F_SETFL, new_option);
     return old_option;
@@ -76,8 +76,10 @@ int http_conn::m_user_count = 0;
 void http_conn::process(){
     /* Parse http request */
     HTTP_CODE read_ret = process_read();
+    printf("http_conn.cpp : 79, read_ret = %d\n", read_ret);
     if(read_ret == NO_REQUEST){
         modfd(m_epollfd, m_sockfd, EPOLLIN);
+        printf("http_conn.cpp : 81\n");
         return;
     }
 
@@ -122,24 +124,25 @@ bool http_conn::read(){
     while(true){
         /* ET触发，循环读完 */
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
-        printf("bytes_read = %d, num = %d\n", bytes_read, num++);
+        printf("http_conn.cpp : 127, bytes_read = %d, num = %d\n", bytes_read, num++);
         if(bytes_read == -1){
             if(errno == EAGAIN || errno == EWOULDBLOCK){
                 break;  /* 没有数据 */
             }
+            perror("this");
             return false;
         }else if(bytes_read == 0){
-            printf("------close-------\n");
+            printf("http_conn.cpp : 135------close-------\n");
             return false;   /* client close */
         }
         m_read_idx += bytes_read;
-        printf("read data: %s\n", m_read_buf);
+        printf("http_conn.cpp : 139, read data: %s\n", m_read_buf);
     }
     return true;
 }
 
 bool http_conn::write(){
-    printf("write\n");
+    printf("http_conn.cpp : 145, write\n");
     int temp = 0;
     int bytes_have_send = 0;    /* already send bytes */
     int bytes_to_send = m_write_idx;
@@ -206,11 +209,12 @@ void http_conn::init(){
     m_method = GET;
     m_content_length = 0;
     m_host = 0;
-    m_start_line = 0;
-    m_read_idx = 0;
+    m_checked_idx = 0;
+    m_write_idx = 0;
+    
     bzero(m_real_file, FILENAME_LEN);
     bzero(m_read_buf, READ_BUFFER_SIZE);    /*clear read_buf */
-    bzero(m_real_file, FILENAME_LEN);
+    bzero(m_write_buf, READ_BUFFER_SIZE);
 
     bytes_have_send = 0;
     bytes_to_send = 0;
@@ -218,6 +222,7 @@ void http_conn::init(){
 
 /* parse one line in http request ,flag is '\r\n' */
 http_conn::LINE_STATE http_conn::parse_line(){
+    printf("http_conn.cpp : 224 , parse_line\n");
     char temp;
     for(; m_checked_idx < m_read_idx; ++m_checked_idx){
         temp = m_read_buf[m_checked_idx];
@@ -229,6 +234,7 @@ http_conn::LINE_STATE http_conn::parse_line(){
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
             }
+            printf("http_conn.cpp : 236 , LINE_BAD\n");
             return LINE_BAD;
         }else if(temp == '\n'){
             if((m_checked_idx > 1) && (m_read_buf[m_checked_idx - 1] == '\n')){
@@ -236,9 +242,11 @@ http_conn::LINE_STATE http_conn::parse_line(){
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
             }
+            printf("http_conn.cpp : 244 , LINE_BAD\n");
             return LINE_BAD;
         }
     }
+    printf("http_conn.cpp : 248 , LINE_OPEN\n");
     return LINE_OPEN;
 }
 
@@ -252,7 +260,7 @@ http_conn::HTTP_CODE http_conn::process_read(){
     ((line_status = parse_line()) == LINE_OK)){     
         text = get_line();
         m_start_line = m_checked_idx;
-        printf("got one line: %s\n", text);
+        printf("http_conn.cpp : 258 , got one line: %s\n", text);
         /* Master machine convert */
         switch(m_check_state){
             case CHECK_STATE_REQUESTLINE: {
@@ -453,7 +461,7 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
             m_iv[1].iov_len = m_file_stat.st_size;
             m_iv_count = 2;
             bytes_to_send = m_write_idx + m_file_stat.st_size;
-            printf("bytes_to_read: %d\n", bytes_to_send);
+            printf("http_conn.cpp : 459 , bytes_to_read: %d\n", bytes_to_send);
             return true;
         default:
             return false;

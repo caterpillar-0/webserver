@@ -125,16 +125,16 @@ int main(int argc, char* argv[]){
                     EPOLLHUP-----Hang up happened on the associated file descriptor.
                 */
                 users[sockfd].close_conn();
-                printf("--close_conn--\n");
+                printf("main.cpp : 128,--close_conn--\n");
             }else if(events[i].events & EPOLLIN){
-                printf("-----EPOLLIN----\n");
+                printf("main.cpp : 130, -----EPOLLIN----\n");
                 if(users[sockfd].read()){
                     if(pool->append(users + sockfd) == false){   /* 主线程完成读数据，交给任务队列，业务逻辑 */
-                        printf("append failed!\n");
+                        printf("main.cpp : 133,append failed!\n");
                         return -1;
                     }
                 }else{
-                    printf("read return false\n");
+                    printf("main.cpp : 137, read return false\n");
                     users[sockfd].close_conn(); /* 读完数据，关闭连接 */
                 }
             }else if(events[i].events & EPOLLOUT){
