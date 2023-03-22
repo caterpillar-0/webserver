@@ -67,7 +67,6 @@ void removefd(int epollfd, int fd){
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
 
-
 /*
     public memeber function
 */
