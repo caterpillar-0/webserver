@@ -28,14 +28,16 @@ void addsig(int sig, void(handler)(int)){
         sa.sa_mask是捕捉信号时的临时阻塞信号集
         sigfillset，将信号集中所有标志位置一
     */
-    sigfillset(&sa.sa_mask);    /* 初始化阻塞所有信号 */
+    sigfillset(&sa.sa_mask);    /* 初始化阻塞所有信号，将指定均置一 */
     sigaction(sig, &sa, nullptr);   /* 信号捕捉函数，检查或者改变信号的处理 */
 }
 
 int main(int argc, char* argv[]){
+    printf("main.cpp : 36, %s\n", argv[0]); /* ./server */
     /* ./server 9999 端口号 */
     if(argc <= 1){
-        printf("usage: %s port_number\n", basename(argv[0]));
+        printf("usage: %s port_number\n", argv[0]);
+        //printf("usage: %s port_number\n", basename(argv[0]));
         return 1;
     }
 
