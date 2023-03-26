@@ -124,7 +124,7 @@ public:
         if(!head){
             return;
         }
-        printf("lst_timer.h : 96 , timer tick/n");
+        printf("lst_timer.h : 127 , timer tick\n");
         time_t cur = time(nullptr); /* get system timer */
         util_timer* node = head;
         /* 遍历节点，直到遇到一个尚未到期的定时器 */
