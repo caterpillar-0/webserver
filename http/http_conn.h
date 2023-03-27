@@ -18,7 +18,8 @@
 #include <signal.h>
 #include <netinet/in.h>
 #include <pthread.h>
-
+#include "../noactive/lst_timer.h"
+class util_timer;   /* 前向声明 */
 
 //http_conn是任务类，线程的执行函数http_conn->run()
 class http_conn
@@ -27,9 +28,9 @@ public:
     /*
         static member variable
     */
-
     static int m_epollfd;   /* 所有的socket事件被注册到同一个epoll内核中，设置为静态 */
     static int m_user_count;    /* 统计用户数量 */
+    static sort_timer_lst m_timer_lst;
 
     static const int READ_BUFFER_SIZE = 2048;
     static const int WRITE_BUFFER_SIZE = 2048;
@@ -59,7 +60,7 @@ public:
     ~http_conn(){};
 
     void process();     /* deal client request */
-    void init(int sockfd, const sockaddr_in &caddr);    /* init new connect socket */
+    void init(int sockfd, const sockaddr_in &caddr, util_timer* timer);    /* init new connect socket */
     void close_conn();
     bool read();    /*non-blocking read */
     bool write();   /* non-blocking write */
@@ -124,6 +125,9 @@ private:
     /* write bug fix add field */
     int bytes_to_send;  
     int bytes_have_send;    
+
+    /* timer */
+    util_timer* m_timer;  
 
 };
 

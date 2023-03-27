@@ -12,18 +12,32 @@
 #include "locker/locker.h"
 #include <exception>
 #include <errno.h>
+#include <assert.h>
 
 #define MAX_FD 65535 /* 最大的文件描述符数目 */
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
 
+static int pipefd[2];   /* 管道，信号通知 */
+static sort_timer_lst timer_lst;
+
 extern void addfd(int epollfd, int fd, bool one_shot);  /* 添加fd到epoll */
 extern void removefd(int epollfd, int fd);
+extern int setnonblocking(int fd);
+
+void sig_handler(int sig){
+    printf("main.cpp : 27, sig_handler\n");
+    int save_errno = errno;
+    int msg = sig;
+    send(pipefd[1], (char*)&msg, 1, 0);  /* 将sig写入管道 */
+    errno = save_errno;
+}
 
 void addsig(int sig, void(handler)(int)){
     /* handlaer信号处理函数指针，此处选择忽略，SIG_IGN告诉系统什么也不做 */
     struct sigaction sa;
     memset(&sa, '\0', sizeof(sa));
     sa.sa_handler = handler;
+    sa.sa_flags |= SA_RESTART;
     /*
         sa.sa_mask是捕捉信号时的临时阻塞信号集
         sigfillset，将信号集中所有标志位置一
@@ -32,8 +46,15 @@ void addsig(int sig, void(handler)(int)){
     sigaction(sig, &sa, nullptr);   /* 信号捕捉函数，检查或者改变信号的处理 */
 }
 
+/* 定时器的成员函数，定时器超时后的回调函数 */
+void cb_func(http_conn* user_data){
+    assert(user_data);
+    user_data->close_conn();
+}
+
+
 int main(int argc, char* argv[]){
-    printf("main.cpp : 36, %s\n", argv[0]); /* ./server */
+    printf("main.cpp : 57, %s\n", argv[0]); /* ./server */
     /* ./server 9999 端口号 */
     if(argc <= 1){
         printf("usage: %s port_number\n", argv[0]);
@@ -93,7 +114,26 @@ int main(int argc, char* argv[]){
     addfd(epollfd, listenfd, false);    /* 添加fd到epoll */
     http_conn:: m_epollfd = epollfd;
 
-    while(true){
+    /* 创建全双工管道 ，pipe[0]从管道读， Pipe[1]写入管道 */
+    ret = socketpair(PF_UNIX, SOCK_STREAM, 0, pipefd);
+    if(ret == -1){
+        perror("socketpair");
+        return -1;
+    }
+    setnonblocking(pipefd[1]);  /* 设置写端非阻塞，管道缓冲区满时，不会一直阻塞等待*/
+    addfd(epollfd, pipefd[0], false);  /* 读端加入epoll事件监听 */
+
+    /* 加入信号捕获，一旦捕获执行sig_handler, 写入pipefd[1], 触发pipefd[0]读事件 */
+    addsig(SIGALRM, sig_handler);    /* 定时器到时 */
+    addsig(SIGTERM, sig_handler);    /* 优雅关闭 */
+
+    bool timeout = false;
+    bool stop_server = false;
+    sort_timer_lst timer_lst;
+    http_conn::m_timer_lst timer_lst;
+    alarm(TIMESLOT);    /* 开启定时器 */
+
+    while(!stop_server){
         int number = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1); /* 此处，events是传出参数*/
 
         /* ENTR The call was interupted by a signal handler */
@@ -118,8 +158,11 @@ int main(int argc, char* argv[]){
                     close(connfd);
                     continue;
                 }
-                users[connfd].init(connfd, caddr);
-                
+                /* 创建定时器，绑定定时器与用户数据，将定时器添加进排序链表中 */
+                util_timer* timer = new util_timer;
+                timer->init(&users[connfd], cb_func);
+                users[connfd].init(connfd, caddr, timer);
+
             }else if(events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)){
                 /*
                     EPOLLRDHUP-----Stream socket peer closed connection, or shut down writing half of connection.
@@ -127,12 +170,34 @@ int main(int argc, char* argv[]){
                     EPOLLHUP-----Hang up happened on the associated file descriptor.
                 */
                 users[sockfd].close_conn();
-                printf("main.cpp : 128,--close_conn--\n");
+                printf("main.cpp : 170,--close_conn--\n");
+            }else if((sockfd == pipefd[0]) && (events[i].events & EPOLLIN)){
+                /* 有定时器超时触发SIGARM信号，往管道写数据，触发EPOLLIN检测写事件 */
+                /* 处理sig信号(从管道中读取信号信息) */
+                printf("main.cpp:155, pipefd[0]\n");
+                int sig;
+                char signals[1024]; /* 一个信号，一个char */
+                ret = recv(pipefd[0], signals, sizeof(signals), 0);
+                if(ret == -1 || ret == 0){
+                    continue;
+                }else{
+                    for(int i = 0; i < ret; i++){
+                        switch (signals[i]){
+                        case SIGALRM:
+                            timeout = true; /* 优先级不高，timeout标记一下 */
+                            break;
+                        case SIGTERM:
+                            stop_server = true; /* 优雅关闭 */
+                        default:
+                            break;
+                        }
+                    }
+                }
             }else if(events[i].events & EPOLLIN){
-                printf("main.cpp : 130, -----EPOLLIN----\n");
+                printf("main.cpp : 172, -----EPOLLIN----\n");
                 if(users[sockfd].read()){
                     if(pool->append(users + sockfd) == false){   /* 主线程完成读数据，交给任务队列，业务逻辑 */
-                        printf("main.cpp : 133,append failed!\n");
+                        printf("main.cpp : 175,append failed!\n");
                         return -1;
                     }
                 }else{
@@ -146,9 +211,17 @@ int main(int argc, char* argv[]){
                 }
             }
         }
+        if(timeout){
+            timer_lst.tick();    /* 调用tick函数 */
+            alarm(TIMESLOT);    /* 开启定时器 */
+            timeout = false;
+        }
     }
     close(epollfd);
     close(listenfd);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    delete []users;
     delete pool;
     return 0;
 }

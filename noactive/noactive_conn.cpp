@@ -58,7 +58,7 @@ void addsig(int sig){
 }
 
 /* 定时器的成员函数，定时器超时后的回调函数 */
-void cb_func(client_data* user_data){
+void cb_func(http_conn* user_data){
     assert(user_data);
     epoll_ctl(epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0);
     close(user_data->sockfd);

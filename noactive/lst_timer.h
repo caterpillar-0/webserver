@@ -4,33 +4,30 @@
 #include <stdio.h>
 #include <time.h>
 #include <arpa/inet.h>
+#include "../http/http_conn.h"
 
 #define BUFFER_SIZE 64
-class util_timer; /* 前向声明 */
+#define TIMESLOT 5
 
-/* 给每个连接，配一个定时器 ，使用链表连接 */
-
-/* 用户数据结构 */
-struct client_data
-{
-    sockaddr_in caddr;
-    int sockfd;
-    char buf[BUFFER_SIZE];  /* 读缓存 */
-    util_timer* timer;  /* 定时器 */
-};
+class http_conn;
 
 /* 定时器类---双向链表节点 */
 class util_timer{
 public:
     util_timer() : prev(nullptr), next(nullptr){}
+    void init(http_conn* u_data, void (*cb)(http_conn*)){
+        user_data = u_data;
+        cb_func = cb;
+        expire = time(nullptr) + 3 * TIMESLOT;
+    }
 
 public:
     util_timer* prev; 
     util_timer* next;
-    client_data* user_data;
+    http_conn* user_data;
     time_t expire;  /*  任务超时时间， 使用绝对时间 */
     /* 任务回调函数，回调函数处理客户数据，由定时器执行者传递给回调函数 */
-    void (*cb_func)(client_data*);  
+    void (*cb_func)(http_conn*);  
 };
 
 /* 定时器链表， 一个升序、双向链表，且带有头结点和尾节点 */
@@ -169,8 +166,6 @@ private:
             tail = timer;
         }
     }
-
-
 
 private:
     util_timer* head;   

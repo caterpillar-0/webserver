@@ -93,14 +93,17 @@ void http_conn::process(){
     modfd(m_epollfd, m_sockfd, EPOLLOUT);
 }
 
-void http_conn::init(int sockfd, const sockaddr_in &caddr){
+void http_conn::init(int sockfd, const sockaddr_in &caddr, util_timer* timer){
     m_sockfd = sockfd;
     m_address = caddr;
+    m_timer = timer;
     
     int reuse = 1;  /* set port reuse */
     setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     addfd(m_epollfd, m_sockfd, true);
     m_user_count++;
+
+    m_timer_lst.add_timer(timer);
 
     init();
 }
@@ -110,11 +113,15 @@ void http_conn::close_conn(){
         removefd(m_epollfd, m_sockfd);
         m_sockfd = -1;
         m_user_count--;     /* 关闭一个连接，将客户总数-1 */
+        if(m_timer){
+            m_timer_lst.del_timer(m_timer);
+        }
     }
+    printf("http_conn.cpp : 120, close fd %d\n", m_sockfd);
 }
 
 bool http_conn::read(){
-    printf("read---------\n");
+    printf("http_conn.cpp : 123, read---------\n");
     if(m_read_idx >= READ_BUFFER_SIZE){
         return false;
     }
@@ -123,7 +130,7 @@ bool http_conn::read(){
     while(true){
         /* ET触发，循环读完 */
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
-        printf("http_conn.cpp : 127, bytes_read = %d, num = %d\n", bytes_read, num++);
+        printf("http_conn.cpp : 132, bytes_read = %d, num = %d\n", bytes_read, num++);
         if(bytes_read == -1){
             if(errno == EAGAIN || errno == EWOULDBLOCK){
                 break;  /* 没有数据 */
@@ -131,11 +138,17 @@ bool http_conn::read(){
             perror("this");
             return false;
         }else if(bytes_read == 0){
-            printf("http_conn.cpp : 135------close-------\n");
+            printf("http_conn.cpp : 140------close-------\n");
             return false;   /* client close */
         }
         m_read_idx += bytes_read;
-        printf("http_conn.cpp : 139, read data: %s\n", m_read_buf);
+        printf("http_conn.cpp : 144, read data: %s\n", m_read_buf);
+    }
+    /* 读取到数据 ，调整定时器时间 */
+    if(m_timer){
+        m_timer->expire = time(nullptr) + 3 * TIMESLOT;
+        printf("noactive_conn.cpp : 184, adjust timer once\n");
+        m_timer_lst.adjust_timer(m_timer);
     }
     return true;
 }
