@@ -13,12 +13,12 @@
 #include <exception>
 #include <errno.h>
 #include <assert.h>
+#include "noactive/lst_timer.h"
 
 #define MAX_FD 65535 /* 最大的文件描述符数目 */
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
 
 static int pipefd[2];   /* 管道，信号通知 */
-static sort_timer_lst timer_lst;
 
 extern void addfd(int epollfd, int fd, bool one_shot);  /* 添加fd到epoll */
 extern void removefd(int epollfd, int fd);
@@ -129,8 +129,6 @@ int main(int argc, char* argv[]){
 
     bool timeout = false;
     bool stop_server = false;
-    sort_timer_lst timer_lst;
-    http_conn::m_timer_lst timer_lst;
     alarm(TIMESLOT);    /* 开启定时器 */
 
     while(!stop_server){
@@ -170,11 +168,11 @@ int main(int argc, char* argv[]){
                     EPOLLHUP-----Hang up happened on the associated file descriptor.
                 */
                 users[sockfd].close_conn();
-                printf("main.cpp : 170,--close_conn--\n");
+                printf("main.cpp : 172,--close_conn--\n");
             }else if((sockfd == pipefd[0]) && (events[i].events & EPOLLIN)){
                 /* 有定时器超时触发SIGARM信号，往管道写数据，触发EPOLLIN检测写事件 */
                 /* 处理sig信号(从管道中读取信号信息) */
-                printf("main.cpp:155, pipefd[0]\n");
+                printf("main.cpp:176, pipefd[0]\n");
                 int sig;
                 char signals[1024]; /* 一个信号，一个char */
                 ret = recv(pipefd[0], signals, sizeof(signals), 0);
@@ -207,12 +205,13 @@ int main(int argc, char* argv[]){
             }else if(events[i].events & EPOLLOUT){
                 printf("write!\n");
                 if(!users[sockfd].write()){
+                    printf("main.cpp:208, close_conn!\n");
                     users[sockfd].close_conn();
                 }
             }
         }
         if(timeout){
-            timer_lst.tick();    /* 调用tick函数 */
+            http_conn:: m_timer_lst.tick();    /* 调用tick函数 */
             alarm(TIMESLOT);    /* 开启定时器 */
             timeout = false;
         }

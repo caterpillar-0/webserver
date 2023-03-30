@@ -66,6 +66,7 @@ void removefd(int epollfd, int fd){
 
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
+sort_timer_lst http_conn::m_timer_lst;
 
 /*
     public memeber function
@@ -109,15 +110,20 @@ void http_conn::init(int sockfd, const sockaddr_in &caddr, util_timer* timer){
 }
 
 void http_conn::close_conn(){
+    printf("http_conn.cpp : 120, close fd %d\n", m_sockfd);
     if(m_sockfd != -1){
-        removefd(m_epollfd, m_sockfd);
-        m_sockfd = -1;
-        m_user_count--;     /* 关闭一个连接，将客户总数-1 */
         if(m_timer){
+
+            time_t now = time(NULL); // 获取系统当前时间
+            char *str = ctime(&now); // 转换为本地时间字符串
+            printf("%s\n", str); // 输出字符串
+            
             m_timer_lst.del_timer(m_timer);
         }
+        removefd(m_epollfd, m_sockfd);  /* 里面已经有close(fd) */
+        m_user_count--;     /* 关闭一个连接，将客户总数-1 */
+        m_sockfd = -1;  /* 先close，再-1赋值 */
     }
-    printf("http_conn.cpp : 120, close fd %d\n", m_sockfd);
 }
 
 bool http_conn::read(){
@@ -147,6 +153,8 @@ bool http_conn::read(){
     /* 读取到数据 ，调整定时器时间 */
     if(m_timer){
         m_timer->expire = time(nullptr) + 3 * TIMESLOT;
+        char* str = ctime(&m_timer->expire);
+        printf("%s\n", str);
         printf("noactive_conn.cpp : 184, adjust timer once\n");
         m_timer_lst.adjust_timer(m_timer);
     }
