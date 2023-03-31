@@ -180,7 +180,7 @@ int main(int argc, char* argv[]){
                 util_timer* timer = users[sockfd].timer;
                 if(((ret < 0) && (errno != EAGAIN)) || ret == 0){
                     /* EAGAIN错误码只是数据读完了，不是真的错误 */
-                    cb_func(&users[sockfd]);
+                    cb_func(sockfd);
                     if(timer){
                         timer_lst.del_timer(timer);
                     }

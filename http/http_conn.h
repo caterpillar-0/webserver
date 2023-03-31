@@ -65,6 +65,8 @@ public:
     bool read();    /*non-blocking read */
     bool write();   /* non-blocking write */
 
+    void m_cb_func(http_conn* user_data);
+
 private:
     /*
         private member function
@@ -93,6 +95,8 @@ private:
     bool add_linger();
     bool add_blank_line();
     void unmap();
+
+
 
 private:
     /*

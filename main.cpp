@@ -22,7 +22,14 @@ static int pipefd[2];   /* 管道，信号通知 */
 
 extern void addfd(int epollfd, int fd, bool one_shot);  /* 添加fd到epoll */
 extern void removefd(int epollfd, int fd);
+extern void modfd(int epollfd, int fd, int ev);
 extern int setnonblocking(int fd);
+
+/* 定时器的成员函数，定时器超时后的回调函数 */
+void cb_func(http_conn* user_data){
+    assert(user_data);
+    user_data->m_cb_func(user_data);
+}
 
 void sig_handler(int sig){
     printf("main.cpp : 27, sig_handler\n");
@@ -44,12 +51,6 @@ void addsig(int sig, void(handler)(int)){
     */
     sigfillset(&sa.sa_mask);    /* 初始化阻塞所有信号，将指定均置一 */
     sigaction(sig, &sa, nullptr);   /* 信号捕捉函数，检查或者改变信号的处理 */
-}
-
-/* 定时器的成员函数，定时器超时后的回调函数 */
-void cb_func(http_conn* user_data){
-    assert(user_data);
-    user_data->close_conn();
 }
 
 
@@ -121,7 +122,7 @@ int main(int argc, char* argv[]){
         return -1;
     }
     setnonblocking(pipefd[1]);  /* 设置写端非阻塞，管道缓冲区满时，不会一直阻塞等待*/
-    addfd(epollfd, pipefd[0], false);  /* 读端加入epoll事件监听 */
+    addfd(epollfd, pipefd[0], true);  /* 读端加入epoll事件监听 */
 
     /* 加入信号捕获，一旦捕获执行sig_handler, 写入pipefd[1], 触发pipefd[0]读事件 */
     addsig(SIGALRM, sig_handler);    /* 定时器到时 */
@@ -147,7 +148,7 @@ int main(int argc, char* argv[]){
                 /* new client connection */
                 struct sockaddr_in caddr;
                 socklen_t len = sizeof(caddr);
-                int connfd = accept(sockfd, (struct sockaddr*)&caddr, &len);
+                int connfd = accept(listenfd, (struct sockaddr*)&caddr, &len);
                 if(connfd < 0){
                     printf("errno is : %d\n", errno);
                     continue;
@@ -167,6 +168,11 @@ int main(int argc, char* argv[]){
                     EPOLLERR------Error condition happened on the associated file descriptor.
                     EPOLLHUP-----Hang up happened on the associated file descriptor.
                 */
+               printf("Event %d: fd=%d, events=%s%s%s\n", i, events[i].data.fd,
+            (events[i].events & EPOLLRDHUP) ? "EPOLLRDHUP " : "",
+            (events[i].events & EPOLLHUP) ? "EPOLLHUP " : "",
+            (events[i].events & EPOLLERR) ? "EPOLLERR " : "");
+               perror("event ");
                 users[sockfd].close_conn();
                 printf("main.cpp : 172,--close_conn--\n");
             }else if((sockfd == pipefd[0]) && (events[i].events & EPOLLIN)){
@@ -176,7 +182,9 @@ int main(int argc, char* argv[]){
                 int sig;
                 char signals[1024]; /* 一个信号，一个char */
                 ret = recv(pipefd[0], signals, sizeof(signals), 0);
+                
                 if(ret == -1 || ret == 0){
+                    modfd(epollfd, pipefd[0], EPOLLIN);
                     continue;
                 }else{
                     for(int i = 0; i < ret; i++){
@@ -186,10 +194,10 @@ int main(int argc, char* argv[]){
                             break;
                         case SIGTERM:
                             stop_server = true; /* 优雅关闭 */
-                        default:
                             break;
                         }
                     }
+                    modfd(epollfd, pipefd[0], EPOLLIN);
                 }
             }else if(events[i].events & EPOLLIN){
                 printf("main.cpp : 172, -----EPOLLIN----\n");

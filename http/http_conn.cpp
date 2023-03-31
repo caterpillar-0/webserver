@@ -23,6 +23,15 @@ const char* error_500_form = "There was an unusual problem serving the requested
     extern function
     operation of fd(add, remove, modify) to epollfd
 */
+/* 定时器的成员函数，定时器超时后的回调函数 */
+void http_conn::m_cb_func(http_conn* user_data){
+    epoll_ctl(m_epollfd, EPOLL_CTL_DEL, user_data->m_sockfd, 0);
+    close(user_data->m_sockfd);
+    time_t tim = time(nullptr);
+    char* str = ctime(&tim);
+    printf("http_conn.cpp : 32 %s\n", str);
+    printf("http_conn.cpp : 33, cb_func, close fd %d\n", user_data->m_sockfd);
+}
 
 /* set fd non-blocking */
 int setnonblocking(int fd){     
@@ -104,7 +113,7 @@ void http_conn::init(int sockfd, const sockaddr_in &caddr, util_timer* timer){
     addfd(m_epollfd, m_sockfd, true);
     m_user_count++;
 
-    m_timer_lst.add_timer(timer);
+    m_timer_lst.add_timer(m_timer);
 
     init();
 }
@@ -112,6 +121,7 @@ void http_conn::init(int sockfd, const sockaddr_in &caddr, util_timer* timer){
 void http_conn::close_conn(){
     printf("http_conn.cpp : 120, close fd %d\n", m_sockfd);
     if(m_sockfd != -1){
+        removefd(m_epollfd, m_sockfd);  /* 里面已经有close(fd) */
         if(m_timer){
 
             time_t now = time(NULL); // 获取系统当前时间
@@ -120,7 +130,6 @@ void http_conn::close_conn(){
             
             m_timer_lst.del_timer(m_timer);
         }
-        removefd(m_epollfd, m_sockfd);  /* 里面已经有close(fd) */
         m_user_count--;     /* 关闭一个连接，将客户总数-1 */
         m_sockfd = -1;  /* 先close，再-1赋值 */
     }
@@ -154,8 +163,8 @@ bool http_conn::read(){
     if(m_timer){
         m_timer->expire = time(nullptr) + 3 * TIMESLOT;
         char* str = ctime(&m_timer->expire);
-        printf("%s\n", str);
-        printf("noactive_conn.cpp : 184, adjust timer once\n");
+        printf("http_conn.cpp : 164%s\n", str);
+        printf("http_conn.cpp : 165, adjust timer once\n");
         m_timer_lst.adjust_timer(m_timer);
     }
     return true;
@@ -238,6 +247,10 @@ void http_conn::init(){
 
     bytes_have_send = 0;
     bytes_to_send = 0;
+
+
+
+
 }
 
 /* parse one line in http request ,flag is '\r\n' */
