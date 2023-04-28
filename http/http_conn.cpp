@@ -23,15 +23,6 @@ const char* error_500_form = "There was an unusual problem serving the requested
     extern function
     operation of fd(add, remove, modify) to epollfd
 */
-/* 定时器的成员函数，定时器超时后的回调函数 */
-void http_conn::m_cb_func(http_conn* user_data){
-    epoll_ctl(m_epollfd, EPOLL_CTL_DEL, user_data->m_sockfd, 0);
-    close(user_data->m_sockfd);
-    time_t tim = time(nullptr);
-    char* str = ctime(&tim);
-    printf("http_conn.cpp : 32 %s\n", str);
-    printf("http_conn.cpp : 33, cb_func, close fd %d\n", user_data->m_sockfd);
-}
 
 /* set fd non-blocking */
 int setnonblocking(int fd){     
@@ -75,7 +66,6 @@ void removefd(int epollfd, int fd){
 
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
-sort_timer_lst http_conn::m_timer_lst;
 
 /*
     public memeber function
@@ -103,35 +93,26 @@ void http_conn::process(){
     modfd(m_epollfd, m_sockfd, EPOLLOUT);
 }
 
-void http_conn::init(int sockfd, const sockaddr_in &caddr, util_timer* timer){
+void http_conn::init(int sockfd, const sockaddr_in &caddr){
     m_sockfd = sockfd;
     m_address = caddr;
-    m_timer = timer;
     
     int reuse = 1;  /* set port reuse */
     setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     addfd(m_epollfd, m_sockfd, true);
     m_user_count++;
 
-    m_timer_lst.add_timer(m_timer);
-
     init();
 }
 
-void http_conn::close_conn(){
-    printf("http_conn.cpp : 120, close fd %d\n", m_sockfd);
-    if(m_sockfd != -1){
-        removefd(m_epollfd, m_sockfd);  /* 里面已经有close(fd) */
-        if(m_timer){
-
-            time_t now = time(NULL); // 获取系统当前时间
-            char *str = ctime(&now); // 转换为本地时间字符串
-            printf("%s\n", str); // 输出字符串
-            
-            m_timer_lst.del_timer(m_timer);
-        }
-        m_user_count--;     /* 关闭一个连接，将客户总数-1 */
-        m_sockfd = -1;  /* 先close，再-1赋值 */
+//关闭连接，关闭一个连接，客户总量减一
+void http_conn::close_conn(bool real_close)
+{
+    if (real_close && (m_sockfd != -1))
+    {
+        removefd(m_epollfd, m_sockfd);
+        m_sockfd = -1;
+        m_user_count--;
     }
 }
 
@@ -158,14 +139,6 @@ bool http_conn::read(){
         }
         m_read_idx += bytes_read;
         printf("http_conn.cpp : 144, read data: %s\n", m_read_buf);
-    }
-    /* 读取到数据 ，调整定时器时间 */
-    if(m_timer){
-        m_timer->expire = time(nullptr) + 3 * TIMESLOT;
-        char* str = ctime(&m_timer->expire);
-        printf("http_conn.cpp : 164%s\n", str);
-        printf("http_conn.cpp : 165, adjust timer once\n");
-        m_timer_lst.adjust_timer(m_timer);
     }
     return true;
 }
@@ -247,10 +220,6 @@ void http_conn::init(){
 
     bytes_have_send = 0;
     bytes_to_send = 0;
-
-
-
-
 }
 
 /* parse one line in http request ,flag is '\r\n' */

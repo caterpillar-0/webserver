@@ -17,8 +17,11 @@
 
 #define MAX_FD 65535 /* 最大的文件描述符数目 */
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
+#define TIMESLOT 5             //最小超时单位
 
+//定时器相关参数
 static int pipefd[2];   /* 管道，信号通知 */
+static sort_timer_lst timer_lst;
 
 extern void addfd(int epollfd, int fd, bool one_shot);  /* 添加fd到epoll */
 extern void removefd(int epollfd, int fd);
@@ -26,9 +29,12 @@ extern void modfd(int epollfd, int fd, int ev);
 extern int setnonblocking(int fd);
 
 /* 定时器的成员函数，定时器超时后的回调函数 */
-void cb_func(http_conn* user_data){
+void cb_func(client_data* user_data){
+    epoll_ctl(http_conn::m_epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0);
     assert(user_data);
-    user_data->m_cb_func(user_data);
+    close(user_data->sockfd);
+    http_conn::m_user_count--;//定时器超时，断开连接
+    printf("cb_func!\n");
 }
 
 void sig_handler(int sig){
@@ -130,6 +136,7 @@ int main(int argc, char* argv[]){
 
     bool timeout = false;
     bool stop_server = false;
+    client_data* users_timer = new client_data[MAX_FD];
     alarm(TIMESLOT);    /* 开启定时器 */
 
     while(!stop_server){
@@ -157,10 +164,19 @@ int main(int argc, char* argv[]){
                     close(connfd);
                     continue;
                 }
-                /* 创建定时器，绑定定时器与用户数据，将定时器添加进排序链表中 */
-                util_timer* timer = new util_timer;
-                timer->init(&users[connfd], cb_func);
-                users[connfd].init(connfd, caddr, timer);
+                users[connfd].init(connfd, caddr);
+
+                //初始化client_data数据
+                //创建定时器，设置回调函数和超时时间，绑定用户数据，将定时器添加到链表中
+                users_timer[connfd].address = caddr;
+                users_timer[connfd].sockfd = connfd;
+                util_timer *timer = new util_timer;
+                timer->user_data = &users_timer[connfd];
+                timer->cb_func = cb_func;
+                time_t cur = time(NULL);
+                timer->expire = cur + 3 * TIMESLOT;
+                users_timer[connfd].timer = timer;
+                timer_lst.add_timer(timer);
 
             }else if(events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)){
                 /*
@@ -172,9 +188,16 @@ int main(int argc, char* argv[]){
             (events[i].events & EPOLLRDHUP) ? "EPOLLRDHUP " : "",
             (events[i].events & EPOLLHUP) ? "EPOLLHUP " : "",
             (events[i].events & EPOLLERR) ? "EPOLLERR " : "");
-               perror("event ");
-                users[sockfd].close_conn();
+                perror("event ");
                 printf("main.cpp : 172,--close_conn--\n");
+                //服务器端关闭连接，移除对应的定时器
+                util_timer *timer = users_timer[sockfd].timer;
+                timer->cb_func(&users_timer[sockfd]);
+
+                if (timer)
+                {
+                    timer_lst.del_timer(timer);
+                }
             }else if((sockfd == pipefd[0]) && (events[i].events & EPOLLIN)){
                 /* 有定时器超时触发SIGARM信号，往管道写数据，触发EPOLLIN检测写事件 */
                 /* 处理sig信号(从管道中读取信号信息) */
@@ -200,26 +223,44 @@ int main(int argc, char* argv[]){
                     modfd(epollfd, pipefd[0], EPOLLIN);
                 }
             }else if(events[i].events & EPOLLIN){
+                util_timer *timer = users_timer[sockfd].timer;
                 printf("main.cpp : 172, -----EPOLLIN----\n");
                 if(users[sockfd].read()){
+                    /* 此处为模拟proactor模式，还是主线程负责从内核区读到用户态缓冲区 */
                     if(pool->append(users + sockfd) == false){   /* 主线程完成读数据，交给任务队列，业务逻辑 */
                         printf("main.cpp : 175,append failed!\n");
                         return -1;
                     }
+                    //若有数据传输，则将定时器往后延迟3个单位
+                    //并对新的定时器在链表上的位置进行调整
+                    if (timer)
+                    {
+                        time_t cur = time(NULL);
+                        timer->expire = cur + 3 * TIMESLOT;
+                        timer_lst.adjust_timer(timer);
+                    }
                 }else{
                     printf("main.cpp : 137, read return false\n");
-                    users[sockfd].close_conn(); /* 读完数据，关闭连接 */
+                    timer->cb_func(&users_timer[sockfd]);
+                    if (timer)
+                    {
+                        timer_lst.del_timer(timer);
+                    }
                 }
             }else if(events[i].events & EPOLLOUT){
+                util_timer *timer = users_timer[sockfd].timer;
                 printf("write!\n");
                 if(!users[sockfd].write()){
-                    printf("main.cpp:208, close_conn!\n");
-                    users[sockfd].close_conn();
+                    printf("main.cpp : 245, write return false\n");
+                    timer->cb_func(&users_timer[sockfd]);
+                    if (timer){
+                        timer_lst.del_timer(timer);
+                    }
                 }
             }
         }
         if(timeout){
-            http_conn:: m_timer_lst.tick();    /* 调用tick函数 */
+            timer_lst.tick();    /* 调用tick函数 */
             alarm(TIMESLOT);    /* 开启定时器 */
             timeout = false;
         }
@@ -229,6 +270,7 @@ int main(int argc, char* argv[]){
     close(pipefd[0]);
     close(pipefd[1]);
     delete []users;
+    delete[] users_timer;
     delete pool;
     return 0;
 }
