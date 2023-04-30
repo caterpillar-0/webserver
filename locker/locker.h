@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <exception>
 #include <semaphore.h>
+#include <time.h>
 
 // 定义线程同步封装类，互斥锁，条件变量，信号量
 // 类内定义实现，隐式内联
@@ -28,6 +29,9 @@ public:
     bool unlock(){
         return pthread_mutex_unlock(&m_mutex) == 0;
     };
+    pthread_mutex_t* get(){
+        return &m_mutex;
+    }
 };
 
 /* 条件变量，封装类 */
@@ -45,11 +49,21 @@ public:
     };
     /* 根据条件变量，阻塞线程 */
     bool wait(pthread_mutex_t* m_mutex){
-        return pthread_cond_wait(&m_cond, m_mutex);
+        int ret = 0;
+        ret = pthread_cond_wait(&m_cond, m_mutex);
+        return ret == 0;
+    }
+    bool timewait(pthread_mutex_t* m_mutex, struct timespec t){
+        int ret = 0;
+        ret = pthread_cond_timedwait(&m_cond, m_mutex, &t);
+        return ret == 0;
     }
     /* 唤起线程 */
     bool signal(){
-        return pthread_cond_signal(&m_cond);
+        return pthread_cond_signal(&m_cond) == 0;
+    }
+    bool broadcast(){
+        return pthread_cond_broadcast(&m_cond) == 0;
     }
 
 };
@@ -78,11 +92,11 @@ public:
     }
     /* 信号量wait-1 */
     bool wait(){
-        return sem_wait(&m_sem) == -1;  /* 调用一次对信号量值-1 */
+        return sem_wait(&m_sem) == 0;  /* 调用一次对信号量值-1 */
     }
     /* 信号量post+1 */
     bool post(){
-        return sem_post(&m_sem) == -1;
+        return sem_post(&m_sem) == 0;
     }
 
 };

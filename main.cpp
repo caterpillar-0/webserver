@@ -14,10 +14,13 @@
 #include <errno.h>
 #include <assert.h>
 #include "noactive/lst_timer.h"
+#include "log/log.h"
 
 #define MAX_FD 65535 /* 最大的文件描述符数目 */
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
 #define TIMESLOT 5             //最小超时单位
+
+#define ASYNLOG
 
 //定时器相关参数
 static int pipefd[2];   /* 管道，信号通知 */
@@ -35,6 +38,8 @@ void cb_func(client_data* user_data){
     close(user_data->sockfd);
     http_conn::m_user_count--;//定时器超时，断开连接
     printf("cb_func!\n");
+    LOG_INFO("close fd %d",user_data->sockfd);
+    Log::get_instance()->flush();
 }
 
 void sig_handler(int sig){
@@ -61,6 +66,17 @@ void addsig(int sig, void(handler)(int)){
 
 
 int main(int argc, char* argv[]){
+ #ifdef ASYNLOG
+    bool flag = Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 8); //异步日志模型
+    if(!flag)printf("false!!!!\n");
+#endif
+
+#ifdef SYNLOG
+    Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 0); //同步日志模型
+    if(!flag)printf("false!!!!\n");
+#endif
+    //LOG_INFO("%s", "main.cpp");
+
     printf("main.cpp : 57, %s\n", argv[0]); /* ./server */
     /* ./server 9999 端口号 */
     if(argc <= 1){
@@ -157,10 +173,11 @@ int main(int argc, char* argv[]){
                 socklen_t len = sizeof(caddr);
                 int connfd = accept(listenfd, (struct sockaddr*)&caddr, &len);
                 if(connfd < 0){
-                    printf("errno is : %d\n", errno);
+                    LOG_ERROR("%s:errno is:%d", "accept error", errno);
                     continue;
                 }
                 if(http_conn::m_user_count >= MAX_FD){
+                    LOG_ERROR("%s", "Internal server busy");
                     close(connfd);
                     continue;
                 }
