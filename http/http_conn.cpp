@@ -1,8 +1,10 @@
 #include "http_conn.h"
 
-/*
-    define && const variables
-*/
+//#define listenfdET
+#define listenfdLT
+
+#define connfdET
+//#define connfdLT
 
 /* file resource root address */
 const char* doc_root = "/home/xmm/code/webserver3/webserver/resources";
@@ -18,7 +20,6 @@ const char* error_404_form = "The requested file was not found on this server.\n
 const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
 
-
 /*
     extern function
     operation of fd(add, remove, modify) to epollfd
@@ -32,21 +33,37 @@ int setnonblocking(int fd){
     return old_option;
 
 }
-/*
-    reset EPOLLONESHOT events on fd, to ensure triggered next time
-*/
+/* reset EPOLLONESHOT events on fd, to ensure triggered next time */
 void modfd(int epollfd, int fd, int ev){
     epoll_event event;
     event.data.fd = fd;
+#ifdef connfdET
     event.events = ev | EPOLLET | EPOLLRDHUP | EPOLLONESHOT;
+#endif
+#ifdef connfdLT
+    event.events = ev | EPOLLRDHUP | EPOLLONESHOT;
+#endif
     epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 }
 
 void addfd(int epollfd, int fd, bool one_shot){
     epoll_event event;
     event.data.fd = fd;
-    //event.events = EPOLLIN | EPOLLRDHUP;
+    
+#ifdef listenfdLT
     event.events = EPOLLIN | EPOLLRDHUP;
+#endif
+#ifdef listenfdET
+    event.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
+#endif
+
+#ifdef connfdET
+    event.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
+#endif
+#ifdef connfdLT
+    event.events = EPOLLIN | EPOLLRDHUP;
+#endif
+
     if(one_shot) 
     {
         event.events |= EPOLLONESHOT;   /* 防止同一个通信被不同的线程处理 */
@@ -123,6 +140,15 @@ bool http_conn::read(){
     }
     int bytes_read = 0;
     int num = 0;
+#ifdef connfdLT
+    bytes_read = recvm_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
+    if(bytes_read <= 0){
+        return false;
+    }
+    m_read_idx += bytes_read;
+    return true;
+#endif
+#ifdef connfdET
     while(true){
         /* ET触发，循环读完 */
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
@@ -140,6 +166,7 @@ bool http_conn::read(){
         m_read_idx += bytes_read;
         printf("http_conn.cpp : 144, read data: %s\n", m_read_buf);
     }
+#endif
     return true;
 }
 

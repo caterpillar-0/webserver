@@ -20,7 +20,11 @@
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
 #define TIMESLOT 5             //最小超时单位
 
-#define ASYNLOG
+#define ASYNLOG /* 异步日志 */
+//#define SYNLOG /* 同步日志 */
+
+#define listenfdET /* 边缘触发非阻塞 */
+//#define listenfdLT /* 水平触发阻塞 */
 
 //定时器相关参数
 static int pipefd[2];   /* 管道，信号通知 */
@@ -64,16 +68,13 @@ void addsig(int sig, void(handler)(int)){
     sigaction(sig, &sa, nullptr);   /* 信号捕捉函数，检查或者改变信号的处理 */
 }
 
-
 int main(int argc, char* argv[]){
  #ifdef ASYNLOG
     bool flag = Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 8); //异步日志模型
-    if(!flag)printf("false!!!!\n");
 #endif
 
 #ifdef SYNLOG
-    Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 0); //同步日志模型
-    if(!flag)printf("false!!!!\n");
+    Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 0); //同步日志模型,,,,,,
 #endif
     //LOG_INFO("%s", "main.cpp");
 
@@ -171,6 +172,7 @@ int main(int argc, char* argv[]){
                 /* new client connection */
                 struct sockaddr_in caddr;
                 socklen_t len = sizeof(caddr);
+#ifdef listenfdLT
                 int connfd = accept(listenfd, (struct sockaddr*)&caddr, &len);
                 if(connfd < 0){
                     LOG_ERROR("%s:errno is:%d", "accept error", errno);
@@ -194,7 +196,32 @@ int main(int argc, char* argv[]){
                 timer->expire = cur + 3 * TIMESLOT;
                 users_timer[connfd].timer = timer;
                 timer_lst.add_timer(timer);
-
+#endif
+#ifdef listenfdET
+                while(1){
+                    int connfd = accept(listenfd, (struct sockaddr*)&caddr, &len);
+                    if(connfd < 0){
+                        LOG_ERROR("%s:errno is %d", "accept error", errno);
+                        /* errno = 11,EAGAIN,通常在非阻塞I/O操作下出现，发现没有数据可读或者写入 */
+                        break;
+                    }
+                    if(http_conn::m_user_count >= MAX_FD){
+                        LOG_ERROR("%s", "Internal server busy");
+                        break;
+                    }
+                    users[connfd].init(connfd, caddr);
+                    //创建定时器，并建立连接
+                    users_timer[connfd].address = caddr;
+                    users_timer[connfd].sockfd = connfd;
+                    util_timer* timer = new util_timer;
+                    users_timer[connfd].timer = timer;
+                    timer->cb_func = cb_func;
+                    time_t cur = time(nullptr);
+                    timer->expire = cur + 3 * TIMESLOT;
+                    timer->user_data = &users_timer[connfd];
+                    timer_lst.add_timer(timer);
+                }
+#endif
             }else if(events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)){
                 /*
                     EPOLLRDHUP-----Stream socket peer closed connection, or shut down writing half of connection.
