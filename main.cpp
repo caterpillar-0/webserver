@@ -18,13 +18,13 @@
 
 #define MAX_FD 65535 /* 最大的文件描述符数目 */
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
-#define TIMESLOT 5             //最小超时单位
+#define TIMESLOT 50             //最小超时单位
 
-#define ASYNLOG /* 异步日志 */
-//#define SYNLOG /* 同步日志 */
+//#define ASYNLOG /* 异步日志 */
+#define SYNLOG /* 同步日志 */
 
-#define listenfdET /* 边缘触发非阻塞 */
-//#define listenfdLT /* 水平触发阻塞 */
+//#define listenfdET /* 边缘触发非阻塞 */
+#define listenfdLT /* 水平触发阻塞 */
 
 //定时器相关参数
 static int pipefd[2];   /* 管道，信号通知 */
@@ -41,8 +41,7 @@ void cb_func(client_data* user_data){
     assert(user_data);
     close(user_data->sockfd);
     http_conn::m_user_count--;//定时器超时，断开连接
-    printf("cb_func!\n");
-    LOG_INFO("close fd %d",user_data->sockfd);
+    LOG_INFO("[%s:%d]: cb_func! close fd %d", __FILE__, __LINE__, user_data->sockfd);
     Log::get_instance()->flush();
 }
 
@@ -268,7 +267,7 @@ int main(int argc, char* argv[]){
                 }
             }else if(events[i].events & EPOLLIN){
                 util_timer *timer = users_timer[sockfd].timer;
-                printf("main.cpp : 172, -----EPOLLIN----\n");
+                LOG_INFO("[%s:%d]: -----EPOLLIN----", __FILE__, __LINE__);
                 if(users[sockfd].read()){
                     /* 此处为模拟proactor模式，还是主线程负责从内核区读到用户态缓冲区 */
                     if(pool->append(users + sockfd) == false){   /* 主线程完成读数据，交给任务队列，业务逻辑 */
@@ -293,14 +292,17 @@ int main(int argc, char* argv[]){
                 }
             }else if(events[i].events & EPOLLOUT){
                 util_timer *timer = users_timer[sockfd].timer;
-                printf("write!\n");
+                LOG_INFO("[%s:%d]: -----EPOLLOUT,write!----", __FILE__, __LINE__);
                 if(!users[sockfd].write()){
-                    printf("main.cpp : 245, write return false\n");
+                    LOG_ERROR("[%s:%d]: write return false", __FILE__, __LINE__);
                     timer->cb_func(&users_timer[sockfd]);
                     if (timer){
                         timer_lst.del_timer(timer);
                     }
                 }
+                printf("test!\n");
+                Log::LOG_INFO("[%s:%d]: test!![%d]:%d!", __FILE__, __LINE__);
+                Log::get_instance()->flush();
             }
         }
         if(timeout){

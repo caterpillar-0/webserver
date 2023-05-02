@@ -25,64 +25,72 @@ class util_timer;   /* 前向声明 */
 class http_conn
 {
 public:
-    /*
-        static member variable
-    */
-    static int m_epollfd;   /* 所有的socket事件被注册到同一个epoll内核中，设置为静态 */
-    static int m_user_count;    /* 统计用户数量 */
-
     static const int READ_BUFFER_SIZE = 2048;
     static const int WRITE_BUFFER_SIZE = 2048;
     static const int FILENAME_LEN = 200;    /* filename max length */
 
-    /*
-        服务器处理HTTP请求的可能结果，报文解析的结果
-        NO_REQUEST          :   请求不完整，需要继续读取客户数据
-        GET_REQUEST         :   表示获得了一个完成的客户请求
-        BAD_REQUEST         :   表示客户请求语法错误
-        NO_RESOURCE         :   表示服务器没有资源
-        FORBIDDEN_REQUEST   :   表示客户对资源没有足够的访问权限
-        FILE_REQUEST        :   文件请求,获取文件成功
-        INTERNAL_ERROR      :   表示服务器内部错误
-        CLOSED_CONNECTION   :   表示客户端已经关闭连接了
-    */
-    enum HTTP_CODE { NO_REQUEST, GET_REQUEST, BAD_REQUEST, NO_RESOURCE, FORBIDDEN_REQUEST, FILE_REQUEST, INTERNAL_ERROR, CLOSED_CONNECTION };
-    enum METHED {GET = 0, POST, HEAD, PUT, DELETE, TRACE, OPTIONS, CONNECT};    /* HTTP request method enumerate */
-    enum CHECK_STATE {CHECK_STATE_REQUESTLINE = 0, CHECK_STATE_HEADER, CHECK_STATE_CONTENT};    /* Master state machine */
-    enum LINE_STATE {LINE_OK = 0, LINE_BAD, LINE_OPEN}; /* Secondary state machine */
+    enum HTTP_CODE { 
+        NO_REQUEST,     /* 请求不完整，需要继续读取客户数据 */
+        GET_REQUEST,    /* 表示获得了一个完成的客户请求 */
+        BAD_REQUEST,    /* 表示客户请求语法错误 */
+        NO_RESOURCE,    /* 表示服务器没有资源 */
+        FORBIDDEN_REQUEST,  /* 表示客户对资源没有足够的访问权限 */
+        FILE_REQUEST,       /* 文件请求,获取文件成功 */
+        INTERNAL_ERROR,     /* 表示服务器内部错误 */
+        CLOSED_CONNECTION   /* 表示客户端已经关闭连接了 */
+    };
+
+    /* HTTP request method enumerate */
+    enum METHED {
+        GET = 0, 
+        POST, 
+        HEAD, 
+        PUT, 
+        DELETE, 
+        TRACE, 
+        OPTIONS, 
+        CONNECT
+    };    
+
+    /* Master state machine */
+    enum CHECK_STATE {
+        CHECK_STATE_REQUESTLINE = 0, 
+        CHECK_STATE_HEADER, 
+        CHECK_STATE_CONTENT
+    };    
+
+    /* Secondary state machine */
+    enum LINE_STATE {
+        LINE_OK = 0, 
+        LINE_BAD, 
+        LINE_OPEN
+    }; 
 
 public:
-    /*
-        public member function
-    */
     http_conn(){};
     ~http_conn(){};
 
-    void process();     /* deal client request */
+public:
     void init(int sockfd, const sockaddr_in &caddr);    /* init new connect socket */
     void close_conn(bool real_close = true);
+    void process();     /* deal client request */
     bool read();    /* non-blocking read */
     bool write();   /* non-blocking write */
 
 private:
-    /*
-        private member function
-    */
     void init();
 
     /* parse http reqeust*/
     HTTP_CODE process_read();    
-   
-    char* get_line(){return m_read_buf + m_start_line;};
     LINE_STATE parse_line();
     HTTP_CODE parse_request_line(char* text);
     HTTP_CODE parse_headers(char* text);
     HTTP_CODE parse_content(char* text);
     HTTP_CODE do_request();
+    char* get_line(){return m_read_buf + m_start_line;};
 
     /* response http message */
     bool process_write(HTTP_CODE ret);
-
     bool add_response( const char* format, ... );
     bool add_status_line(int status, const char* title);
     bool add_headers(int content_length);
@@ -93,12 +101,11 @@ private:
     bool add_blank_line();
     void unmap();
 
-
+public:
+    static int m_epollfd;   /* 所有的socket事件被注册到同一个epoll内核中，设置为静态 */
+    static int m_user_count;    /* 统计用户数量 */
 
 private:
-    /*
-        private member variables
-    */
     int m_sockfd;   /* 该http连接的socket */
     sockaddr_in m_address;  /* 通信的socket地址 */
     int m_read_idx;     /* 记录已读数据缓冲区的下一个位置 */
@@ -127,6 +134,8 @@ private:
     int bytes_to_send;  
     int bytes_have_send;    
 
+    int cgi;    /* 是否启用POST */
+    char* m_string;     /* 存储消息体数据 */
 };
 
 #endif

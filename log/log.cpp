@@ -112,7 +112,7 @@ void Log::write_log(int level, const char* format, ...){
     string log_str;
     m_mutex.lock(); /* 锁m_buf缓冲区 */
     //每条日志前，具体的时间格式,写入m_buf缓冲区
-    int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s", my_tm.tm_year + 1900,
+    int n = snprintf(m_buf, 255, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s", my_tm.tm_year + 1900,
                     my_tm.tm_mon + 1, my_tm.tm_mday, my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
     /* 跟在时间后面，写入日志内容 */
     int m = vsnprintf(m_buf + n, m_log_buf_size - 1, format, valst);

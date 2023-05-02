@@ -1,4 +1,5 @@
 # include "lst_timer.h"
+# include "../log/log.h"
 
 //public函数实现
 sort_timer_lst::~sort_timer_lst(){
@@ -98,6 +99,7 @@ void sort_timer_lst::tick(){
         return;
     }
     printf("lst_timer.cpp : 100, tick()!\n");
+    Log::LOG_INFO("[%s:%d]: tick()![%d]:%d!", __FILE__, __LINE__);
     time_t cur = time(nullptr);//获取当前系统时间，绝对数值
     util_timer* tmp = head;
     while(tmp){

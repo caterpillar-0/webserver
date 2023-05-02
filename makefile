@@ -4,3 +4,4 @@ server: main.cpp ./threadpool/threadpool.h ./http/http_conn.cpp ./http/http_conn
 
 clean:
 	rm  -r server
+	rm  -r tmp_log/2023*

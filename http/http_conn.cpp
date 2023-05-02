@@ -1,8 +1,8 @@
 #include "http_conn.h"
+#include "../log/log.h"
 
-//#define listenfdET
 #define listenfdLT
-
+//#define listenfdET
 #define connfdET
 //#define connfdLT
 
@@ -21,8 +21,7 @@ const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
 
 /*
-    extern function
-    operation of fd(add, remove, modify) to epollfd
+    extern function:operation of fd(add, remove, modify) to epollfd
 */
 
 /* set fd non-blocking */
@@ -78,34 +77,27 @@ void removefd(int epollfd, int fd){
 }
 
 /*
-    static member variable init
+    static member variable init,需在类外初始化，不属于对象，自然不能ctor初始化
 */
-
 int http_conn::m_epollfd = -1;
 int http_conn::m_user_count = 0;
-
-/*
-    public memeber function
-*/
 
 /* deal client request */
 void http_conn::process(){
     /* Parse http request */
     HTTP_CODE read_ret = process_read();
-    printf("http_conn.cpp : 79, read_ret = %d\n", read_ret);
+    Log::LOG_INFO("[%s:%d]: read_ret = %d", __FILE__, __LINE__, read_ret);
     if(read_ret == NO_REQUEST){
         modfd(m_epollfd, m_sockfd, EPOLLIN);
-        printf("http_conn.cpp : 81\n");
         return;
     }
 
     /* Generate response */
-    printf("generate response\n");
-
     bool write_ret = process_write(read_ret);
-    printf("response:%s", m_write_buf);
+    Log::LOG_INFO("[%s:%d]: response:\n%s", __FILE__, __LINE__, m_write_buf);
     if(!write_ret){
         close_conn();
+        Log::LOG_WARN("[%s:%d]: close_conn!");
     }
     modfd(m_epollfd, m_sockfd, EPOLLOUT);
 }
@@ -114,6 +106,7 @@ void http_conn::init(int sockfd, const sockaddr_in &caddr){
     m_sockfd = sockfd;
     m_address = caddr;
     
+    /* 调试时使用，实际不用端口复用 */
     int reuse = 1;  /* set port reuse */
     setsockopt(m_sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
     addfd(m_epollfd, m_sockfd, true);
@@ -134,7 +127,7 @@ void http_conn::close_conn(bool real_close)
 }
 
 bool http_conn::read(){
-    printf("http_conn.cpp : 123, read---------\n");
+    Log::LOG_INFO("[%s:%d]: read!", __FILE__, __LINE__);
     if(m_read_idx >= READ_BUFFER_SIZE){
         return false;
     }
@@ -152,7 +145,7 @@ bool http_conn::read(){
     while(true){
         /* ET触发，循环读完 */
         bytes_read = recv(m_sockfd, m_read_buf + m_read_idx, READ_BUFFER_SIZE - m_read_idx, 0);
-        printf("http_conn.cpp : 132, bytes_read = %d, num = %d\n", bytes_read, num++);
+        Log::LOG_INFO("[%s:%d]: bytes_read = %d, num = %d", __FILE__, __LINE__, bytes_read, num++);
         if(bytes_read == -1){
             if(errno == EAGAIN || errno == EWOULDBLOCK){
                 break;  /* 没有数据 */
@@ -160,30 +153,31 @@ bool http_conn::read(){
             perror("this");
             return false;
         }else if(bytes_read == 0){
-            printf("http_conn.cpp : 140------close-------\n");
             return false;   /* client close */
         }
         m_read_idx += bytes_read;
-        printf("http_conn.cpp : 144, read data: %s\n", m_read_buf);
+        Log::LOG_INFO("[%s:%d]: read data: \n%s", __FILE__, __LINE__, m_read_buf);
     }
 #endif
     return true;
 }
 
 bool http_conn::write(){
-    printf("http_conn.cpp : 145, write\n");
+    Log::LOG_INFO("[%s:%d]: write!", __FILE__, __LINE__);
     int temp = 0;
-    int bytes_have_send = 0;    /* already send bytes */
-    int bytes_to_send = m_write_idx;
-    if(m_write_idx == 0){
+    
+    if(bytes_to_send == 0){
         /* 发送字节数为0， 本次响应结束 */
         modfd(m_epollfd, m_sockfd, EPOLLIN);
         init();
         return true;
     }
+    int num = 1;
     while(1){
         /* ssize_t writev(int fd, const struct iovec *iov, int iovcnt); */
+        printf("write!\n");
         temp = writev(m_sockfd, m_iv, m_iv_count);
+        Log::LOG_INFO("[%s:%d]: write---[%d]:%d!", __FILE__, __LINE__, num++, temp);
         if(temp <= -1){
            if(errno == EAGAIN){
             /* 
@@ -205,7 +199,7 @@ bool http_conn::write(){
             m_iv[1].iov_len = bytes_to_send;
         }else{
             m_iv[0].iov_base = m_write_buf + bytes_have_send;
-            m_iv[0].iov_len = m_iv[0].iov_len - temp;
+            m_iv[0].iov_len = m_iv[0].iov_len - bytes_have_send;
         }
         if(bytes_to_send <= 0){
             /* 没有数据发送 */
@@ -220,7 +214,6 @@ bool http_conn::write(){
         }
     }
 }
-
 
 /*
     private member function
@@ -251,7 +244,6 @@ void http_conn::init(){
 
 /* parse one line in http request ,flag is '\r\n' */
 http_conn::LINE_STATE http_conn::parse_line(){
-    printf("http_conn.cpp : 224 , parse_line\n");
     char temp;
     for(; m_checked_idx < m_read_idx; ++m_checked_idx){
         temp = m_read_buf[m_checked_idx];
@@ -263,7 +255,7 @@ http_conn::LINE_STATE http_conn::parse_line(){
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
             }
-            printf("http_conn.cpp : 236 , LINE_BAD\n");
+            Log::LOG_ERROR("[%s:%d]: LINE_BAD!", __FILE__, __LINE__);
             return LINE_BAD;
         }else if(temp == '\n'){
             if((m_checked_idx > 1) && (m_read_buf[m_checked_idx - 1] == '\n')){
@@ -271,11 +263,11 @@ http_conn::LINE_STATE http_conn::parse_line(){
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
             }
-            printf("http_conn.cpp : 244 , LINE_BAD\n");
+            Log::LOG_ERROR("[%s:%d]: LINE_BAD!", __FILE__, __LINE__);
             return LINE_BAD;
         }
     }
-    printf("http_conn.cpp : 248 , LINE_OPEN\n");
+    Log::LOG_ERROR("[%s:%d]: LINE_OPEN!", __FILE__, __LINE__);
     return LINE_OPEN;
 }
 
@@ -289,7 +281,7 @@ http_conn::HTTP_CODE http_conn::process_read(){
     ((line_status = parse_line()) == LINE_OK)){     
         text = get_line();
         m_start_line = m_checked_idx;
-        printf("http_conn.cpp : 258 , got one line: %s\n", text);
+        Log::LOG_INFO("[%s:%d]: got one line: %s", __FILE__, __LINE__, text);
         /* Master machine convert */
         switch(m_check_state){
             case CHECK_STATE_REQUESTLINE: {
@@ -335,6 +327,9 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char* text){
     char* method = text;
     if(strcasecmp(method, "GET") == 0){
         m_method = GET;
+    }else if(strcasecmp(method, "POST") == 0){
+        m_method = POST;
+        cgi = 1;
     }else{
         return BAD_REQUEST;
     }
@@ -352,9 +347,20 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char* text){
         m_url += 7;     /* http://192.168.110.129:10000/index.html */
         m_url = strchr(m_url, '/');     /* 192.168.110.129:10000/index.html */ 
     }
+    if (strncasecmp(m_url, "https://", 8) == 0)
+    {
+        m_url += 8;
+        m_url = strchr(m_url, '/');
+    }
     if(!m_url || m_url[0] != '/'){
         return BAD_REQUEST;
     }
+
+    //当m_url = '/'，显示判断界面
+    if(strlen(m_url) == 1){
+        strcat(m_url, "judge.html");
+    }
+
     m_check_state = CHECK_STATE_HEADER;    /* convert master machine status */
     return NO_REQUEST;
 }
@@ -371,6 +377,7 @@ http_conn::HTTP_CODE http_conn::parse_headers(char* text){
     }else if(strncasecmp(text, "Connection:", 11) == 0){
         /* Connection : keep-alive ,tcp保活机制 */
         text += 11;
+        //跳过空格和\t字符
         text += strspn(text, " \t");
         if(strcasecmp(text, "keep-alive") == 0){
             m_linger = true;
@@ -384,7 +391,8 @@ http_conn::HTTP_CODE http_conn::parse_headers(char* text){
         text += strspn(text, " \t");
         m_host = text;
     }else{
-        //printf("oop !unknow header %s\n", text);
+        LOG_WARN("[%s:%d]: oop!unknow header: %s", __FILE__, __LINE__, text);
+        Log::get_instance()->flush();
     }
     return NO_REQUEST;  /* continue to parse */
 }
@@ -393,6 +401,7 @@ http_conn::HTTP_CODE http_conn::parse_headers(char* text){
 http_conn::HTTP_CODE http_conn::parse_content(char* text){
     if(m_read_idx >= (m_content_length + m_checked_idx)){
         text[m_content_length] = '\0';
+        m_string = text;    /*  POST请求中为输入的用户名和密码 */
         return GET_REQUEST;
     }
     return NO_REQUEST;
@@ -404,13 +413,68 @@ http_conn::HTTP_CODE http_conn::parse_content(char* text){
     映射到内存地址m_file_address处，并告诉调用者获取文件成功
 */
 http_conn::HTTP_CODE http_conn::do_request(){
-    printf("do request!\n");
-    
+    Log::LOG_INFO("[%s:%d]: do request!!", __FILE__, __LINE__);
     strcpy(m_real_file, doc_root);  /* char *strcpy(char *dest, const char *src); */
-    printf("doc_root:%s, m_real_file:%s\n", doc_root, m_real_file);
+    
     int len = strlen(doc_root);
-    strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);  /* char *strncpy(char *dest, const char *src, size_t n); */
+    const char* p = strrchr(m_url, '/');    /* 查找返回m_url中的/最后一个位置 */
+    // TODO
+    // //处理cgi，post标志,2是登录，3是注册
+    // if(cgi == 1 && (*(p + 1) == '2') || *(p + 1) == '3'){
 
+    // }
+    /* ./
+            GET请求，跳转到judge.html，即欢迎访问页面
+        . /0
+            POST请求，跳转到register.html，即注册页面
+        . /1
+            POST请求，跳转到log.html，即登录页面
+        /5
+            POST请求，跳转到picture.html，即图片请求页面
+        . /6
+            POST请求，跳转到video.html，即视频请求页面
+        ./7
+            POST请求，跳转到fans.html，即关注页面
+    */
+    if(*(p + 1) == '0'){
+        char* m_url_real = (char*)malloc(sizeof(char)*200);
+        strcpy(m_url_real, "/register.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+        free(m_url_real);
+    }else if(*(p + 1) == '0'){
+        char* m_url_real = (char*)malloc(sizeof(char)*200);
+        strcpy(m_url_real, "/log.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+        free(m_url_real);
+
+    }else if(*(p + 1) == '1'){
+        char* m_url_real = (char*)malloc(sizeof(char)*200);
+        strcpy(m_url_real, "/log.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+        free(m_url_real);
+
+    }else if(*(p + 1) == '5'){
+        char* m_url_real = (char*)malloc(sizeof(char)*200);
+        strcpy(m_url_real, "/picture.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+        free(m_url_real);
+
+    }else if(*(p + 1) == '6'){
+        char* m_url_real = (char*)malloc(sizeof(char)*200);
+        strcpy(m_url_real, "/video.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+        free(m_url_real);
+
+    }else if(*(p + 1) == '7'){
+        char* m_url_real = (char*)malloc(sizeof(char)*200);
+        strcpy(m_url_real, "/fans.html");
+        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
+        free(m_url_real);
+    }
+    else{
+        strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);  /* char *strncpy(char *dest, const char *src, size_t n); */
+    }
+    Log::LOG_INFO("[%s:%d]: doc_root:%s, m_real_file:%s", __FILE__, __LINE__, doc_root, m_real_file);
     /* 
         获取m_real_file文件的相关的状态信息，-1失败，0成功 
         stat: get file stat
@@ -447,7 +511,7 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
     bool temp = true;
     switch(ret){
         case INTERNAL_ERROR:
-            printf("INTERNAL_ERROR\n");
+            Log::LOG_WARN("[%s:%d]: INTERNAL_ERROR!!", __FILE__, __LINE__);
             add_status_line(500, error_500_title);
             add_headers(strlen(error_500_form));
             if(!add_content(error_500_form)){
@@ -455,7 +519,7 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
             }
             break;
         case BAD_REQUEST:
-            printf("BAD_REQUEST\n");
+            Log::LOG_WARN("[%s:%d]: BAD_REQUEST!!", __FILE__, __LINE__);
             add_status_line(400, error_400_title);
             add_headers(strlen(error_400_form));
             if(!add_content(error_400_form)){
@@ -463,7 +527,7 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
             }
             break;
         case NO_RESOURCE:
-            printf("NO_RESOURCE\n");
+            Log::LOG_WARN("[%s:%d]: NO_RESOURCE!!", __FILE__, __LINE__);
             add_status_line(404, error_404_title);
             add_headers(strlen(error_404_form));
             if(!add_content(error_404_form)){
@@ -471,7 +535,7 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
             }
             break;
         case FORBIDDEN_REQUEST:
-            printf("FORBIDDEN_REQUEST\n");
+            Log::LOG_WARN("[%s:%d]: FORBIDDEN_REQUEST!!", __FILE__, __LINE__);
             add_status_line(403, error_403_title);
             add_headers(strlen(error_403_form));
             if(!add_content(error_403_form)){
@@ -479,10 +543,10 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
             }
             break;
         case FILE_REQUEST:
-            printf("FILE_REQUEST\n");
+            Log::LOG_WARN("[%s:%d]: FILE_REQUEST!!", __FILE__, __LINE__);
             add_status_line(200, ok_200_title); 
             add_headers(m_file_stat.st_size);
-            printf("m_file_stat.st_size:%ld\n", m_file_stat.st_size);
+            Log::LOG_INFO("[%s:%d]: m_file_stat.st_size:%ld\n", __FILE__, __LINE__, m_file_stat.st_size);
             /* 此处，需要用到iovec,因为数据在不同地方，read_buffer和请求目标文件 */
             m_iv[0].iov_base = m_write_buf;
             m_iv[0].iov_len = m_write_idx;
@@ -490,7 +554,7 @@ bool http_conn::process_write(http_conn::HTTP_CODE ret){
             m_iv[1].iov_len = m_file_stat.st_size;
             m_iv_count = 2;
             bytes_to_send = m_write_idx + m_file_stat.st_size;
-            printf("http_conn.cpp : 459 , bytes_to_read: %d\n", bytes_to_send);
+            Log::LOG_INFO("[%s:%d]: bytes_to_send:%d!!", __FILE__, __LINE__, bytes_to_send);
             return true;
         default:
             return false;
