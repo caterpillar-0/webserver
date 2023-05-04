@@ -125,10 +125,12 @@ void Log::write_log(int level, const char* format, ...){
         m_log_queue->push(log_str);
     }else{
         m_mutex.lock();
-        fputs(log_str.c_str(), m_fp);
+        if (fputs(log_str.c_str(), m_fp) == EOF) {
+            perror("Failed to write to file");
+        }
+        //flush();
         m_mutex.unlock();
     }
-    
     va_end(valst);
 }
 

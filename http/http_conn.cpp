@@ -1,5 +1,13 @@
+#include <mysql/mysql.h>
+#include <map>
+#include <fstream>
+#include <string>
+#include <string.h>
 #include "http_conn.h"
 #include "../log/log.h"
+#include "../locker/locker.h"
+
+using namespace std;
 
 #define listenfdLT
 //#define listenfdET
@@ -19,6 +27,33 @@ const char* error_404_title = "Not Found";
 const char* error_404_form = "The requested file was not found on this server.\n";
 const char* error_500_title = "Internal Error";
 const char* error_500_form = "There was an unusual problem serving the requested file.\n";
+
+/* 将数据库表中用户名和密码放入map */
+map<string, string>users;
+locker m_lock;
+
+void http_conn::initmysql_result(connection_pool* connPool){
+    /* 先从连接池中取一个连接 */
+    MYSQL* mysql = nullptr;
+    connectionRAII mysqlcon(&mysql, connPool);  /* 不直接调用接口，使用RAII对象管理，获取连接+释放连接 */
+    /* 从user表中检索username， passwd数据 */
+    if(mysql_query(mysql, "select username, passwd from user")){
+        LOG_ERROR("[%s:%d]: select error: %s", __FILE__, __LINE__, mysql_error(mysql));
+    }
+    /* 从表中获取完整数据集 */
+    MYSQL_RES* result = mysql_store_result(mysql);
+    /* 返回结果集中的列数 */
+    int num_fields = mysql_num_fields(result);
+    /* 返回所有字段结构的数组 */
+    MYSQL_FIELD* fields = mysql_fetch_fields(result);
+    /* 从结果集中获取下一行， 将对应的用户名和密码，存入map中 */
+    while(MYSQL_ROW row = mysql_fetch_row(result)){
+        string temp1(row[0]);
+        string temp2(row[1]);
+        users[temp1] = temp2;
+    };
+    return;
+}
 
 /*
     extern function:operation of fd(add, remove, modify) to epollfd
@@ -418,9 +453,73 @@ http_conn::HTTP_CODE http_conn::do_request(){
     
     int len = strlen(doc_root);
     const char* p = strrchr(m_url, '/');    /* 查找返回m_url中的/最后一个位置 */
-    // TODO
-    // //处理cgi，post标志,2是登录，3是注册
-    // if(cgi == 1 && (*(p + 1) == '2') || *(p + 1) == '3'){
+
+    //处理cgi，post标志,2是登录，3是注册,/2CGISQL.cgi
+    if(cgi == 1 && (*(p + 1) == '2') || *(p + 1) == '3'){
+        //根据标志判断是登录检测还是注册检测
+        char flag = m_url[1];
+
+        char *m_url_real = (char *)malloc(sizeof(char) * 200);
+        strcpy(m_url_real, "/");
+        strcat(m_url_real, m_url + 2);
+        strncpy(m_real_file + len, m_url_real, FILENAME_LEN - len - 1);
+        free(m_url_real);
+
+        /* 提取用户名和密码 user=123&password=123 */
+        char name[100], password[100];
+        int i = 0;
+        for(int i = 5; m_string[i] != '&'; ++i){
+            name[i - 5] = m_string[i];
+        }
+        name[i - 5] = '\0';
+        int j = 0;
+        for(i = i + 10; m_string[i] != '\0'; ++i, ++j){
+            password[j] = m_string[i];
+        }
+        password[j] = '\0';
+        // Log::LOG_INFO("[%s:%d]: name is [%s]", __FILE__, __LINE__, name);
+        // Log::LOG_INFO("[%s:%d]: password is [%s]", __FILE__, __LINE__, password);
+
+        /* 注册处理 */
+        if(*(p + 1) == '3'){
+            /* 重名检测 */
+            Log::LOG_INFO("[%s:%d]", __FILE__, __LINE__);
+            if(users.find(name) == users.end()){
+                /* 数据库检测: 构造insert语句 */
+                Log::LOG_INFO("[%s:%d]", __FILE__, __LINE__);
+                char* sql_insert = (char*)malloc(sizeof(char)*200);
+                strcpy(sql_insert, "insert into user(username, passwd) values(");
+                strcat(sql_insert, "'");    /* char*dest, const char*src */
+                strcat(sql_insert, name);
+                strcat(sql_insert, "','");
+                strcat(sql_insert, password);
+                strcat(sql_insert, "')");
+                Log::LOG_INFO("[%s:%d]: sql_insert is [%s]", __FILE__, __LINE__, sql_insert);
+
+                /* 操作修改数据库，一定要加锁 */
+                m_lock.lock();
+                int res = mysql_query(mysql, sql_insert);
+                users.insert({name, password});
+                m_lock.unlock();
+
+                if(!res){
+                    strcpy(m_url, "/log.html");
+                }else{
+                    strcpy(m_url, "/registerError.html");
+                }
+            }else{
+                strcpy(m_url, "/registerError.html");
+            }
+
+        }else if(*(p + 1) == '2'){
+            /* 登录处理 */
+            if(users.find(name) != users.end() && users[name] == password){
+                strcpy(m_url, "/welcome.html");
+            }else{
+                strcpy(m_url, "/logError.html");
+            }
+        }
+    }
 
     // }
     /* ./
@@ -433,20 +532,12 @@ http_conn::HTTP_CODE http_conn::do_request(){
             POST请求，跳转到picture.html，即图片请求页面
         . /6
             POST请求，跳转到video.html，即视频请求页面
-        ./7
-            POST请求，跳转到fans.html，即关注页面
     */
     if(*(p + 1) == '0'){
         char* m_url_real = (char*)malloc(sizeof(char)*200);
         strcpy(m_url_real, "/register.html");
         strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
         free(m_url_real);
-    }else if(*(p + 1) == '0'){
-        char* m_url_real = (char*)malloc(sizeof(char)*200);
-        strcpy(m_url_real, "/log.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-        free(m_url_real);
-
     }else if(*(p + 1) == '1'){
         char* m_url_real = (char*)malloc(sizeof(char)*200);
         strcpy(m_url_real, "/log.html");
@@ -464,17 +555,11 @@ http_conn::HTTP_CODE http_conn::do_request(){
         strcpy(m_url_real, "/video.html");
         strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
         free(m_url_real);
-
-    }else if(*(p + 1) == '7'){
-        char* m_url_real = (char*)malloc(sizeof(char)*200);
-        strcpy(m_url_real, "/fans.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-        free(m_url_real);
-    }
-    else{
+    }else{
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);  /* char *strncpy(char *dest, const char *src, size_t n); */
     }
     Log::LOG_INFO("[%s:%d]: doc_root:%s, m_real_file:%s", __FILE__, __LINE__, doc_root, m_real_file);
+    Log::get_instance()->flush();
     /* 
         获取m_real_file文件的相关的状态信息，-1失败，0成功 
         stat: get file stat

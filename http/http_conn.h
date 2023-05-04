@@ -19,6 +19,8 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include "../noactive/lst_timer.h"
+#include "../CGImysql/sql_connection_pool.h"
+
 class util_timer;   /* 前向声明 */
 
 //http_conn是任务类，线程的执行函数http_conn->run()
@@ -76,6 +78,8 @@ public:
     void process();     /* deal client request */
     bool read();    /* non-blocking read */
     bool write();   /* non-blocking write */
+
+    void initmysql_result(connection_pool* connPool);
 
 private:
     void init();
@@ -136,6 +140,7 @@ private:
 
     int cgi;    /* 是否启用POST */
     char* m_string;     /* 存储消息体数据 */
+    MYSQL *mysql;
 };
 
 #endif

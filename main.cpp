@@ -15,6 +15,7 @@
 #include <assert.h>
 #include "noactive/lst_timer.h"
 #include "log/log.h"
+#include "CGImysql/sql_connection_pool.h"
 
 #define MAX_FD 65535 /* 最大的文件描述符数目 */
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
@@ -73,7 +74,7 @@ int main(int argc, char* argv[]){
 #endif
 
 #ifdef SYNLOG
-    Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 0); //同步日志模型,,,,,,
+    Log::get_instance()->init("tmp_log/ServerLog", 2000, 800000, 0); //同步日志模型
 #endif
     //LOG_INFO("%s", "main.cpp");
 
@@ -92,7 +93,10 @@ int main(int argc, char* argv[]){
         SIG+_IGN, 忽略该信号
     */
     addsig(SIGPIPE, SIG_IGN);
-    
+    /* 创建数据库连接池 */
+    connection_pool *connPool = connection_pool::GetInstance();
+    connPool->init("192.168.52.129", "ser", "Xiemaomao123@", "yourdb", 3306, 8);
+    cout <<__FILE__ <<" "<<__LINE__<<endl;
     /* 初始化线程池 */
     threadpool<http_conn> *pool = nullptr;
     try{
@@ -107,6 +111,9 @@ int main(int argc, char* argv[]){
         perror("socket");
         return -1;
     }
+    //初始化数据库读取表
+    users->initmysql_result(connPool);
+    cout <<__FILE__ <<" "<<__LINE__<<endl;
 
     struct sockaddr_in saddr;
     saddr.sin_family = AF_INET;
@@ -156,6 +163,7 @@ int main(int argc, char* argv[]){
     alarm(TIMESLOT);    /* 开启定时器 */
 
     while(!stop_server){
+        cout <<__FILE__ <<" "<<__LINE__<<endl;
         int number = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1); /* 此处，events是传出参数*/
 
         /* ENTR The call was interupted by a signal handler */
@@ -166,6 +174,7 @@ int main(int argc, char* argv[]){
 
         /* 遍历监听有事件的fd */
         for(int i = 0; i < number; i++){
+            cout <<__FILE__ <<" "<<__LINE__<<endl;
             int sockfd = events[i].data.fd;
             if(sockfd == listenfd){ 
                 /* new client connection */
@@ -300,9 +309,8 @@ int main(int argc, char* argv[]){
                         timer_lst.del_timer(timer);
                     }
                 }
-                printf("test!\n");
-                Log::LOG_INFO("[%s:%d]: test!![%d]:%d!", __FILE__, __LINE__);
-                Log::get_instance()->flush();
+                Log::LOG_INFO("[%s:%d]: test!!!", __FILE__, __LINE__);
+                Log::get_instance()->flush();   /* 因为fputs需要等缓冲区满，在一次write结束后，强制刷新flush一次 */
             }
         }
         if(timeout){
