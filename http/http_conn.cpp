@@ -318,7 +318,7 @@ http_conn::HTTP_CODE http_conn::process_read(){
     ((line_status = parse_line()) == LINE_OK)){     
         text = get_line();
         m_start_line = m_checked_idx;
-        Log::LOG_INFO("[%s:%d]: got one line: %s", __FILE__, __LINE__, text);
+        //Log::LOG_INFO("[%s:%d]: got one line: %s", __FILE__, __LINE__, text);
         /* Master machine convert */
         switch(m_check_state){
             case CHECK_STATE_REQUESTLINE: {
@@ -376,7 +376,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char* text){
         return BAD_REQUEST;
     }
     *m_version++ = '\0';    /* /index.html\0HTTP/1.1 */
-    if(strcmp(m_version, "HTTP/1.1") != 0){
+    if(strcmp(m_version, "HTTP/1.1") != 0 && strcmp(m_version, "HTTP/1.0") != 0){
         return BAD_REQUEST;
     }
     /* get m_url */
@@ -428,7 +428,7 @@ http_conn::HTTP_CODE http_conn::parse_headers(char* text){
         text += strspn(text, " \t");
         m_host = text;
     }else{
-        LOG_WARN("[%s:%d]: oop!unknow header: %s", __FILE__, __LINE__, text);
+        //LOG_WARN("[%s:%d]: oop!unknow header: %s", __FILE__, __LINE__, text);
         Log::get_instance()->flush();
     }
     return NO_REQUEST;  /* continue to parse */

@@ -21,8 +21,8 @@
 #define MAX_EVENT_NUMBER 10000 /* 监听的最大事件数量 */
 #define TIMESLOT 50             //最小超时单位
 
-//#define ASYNLOG /* 异步日志 */
-#define SYNLOG /* 同步日志 */
+#define ASYNLOG /* 异步日志 */
+//#define SYNLOG /* 同步日志 */
 
 //#define listenfdET /* 边缘触发非阻塞 */
 #define listenfdLT /* 水平触发阻塞 */
@@ -47,7 +47,7 @@ void cb_func(client_data* user_data){
 }
 
 void sig_handler(int sig){
-    printf("main.cpp : 27, sig_handler\n");
+    //printf("main.cpp : 27, sig_handler\n");
     int save_errno = errno;
     int msg = sig;
     send(pipefd[1], (char*)&msg, 1, 0);  /* 将sig写入管道 */
@@ -78,7 +78,7 @@ int main(int argc, char* argv[]){
 #endif
     //LOG_INFO("%s", "main.cpp");
 
-    printf("main.cpp : 57, %s\n", argv[0]); /* ./server */
+    //printf("main.cpp : 57, %s\n", argv[0]); /* ./server */
     /* ./server 9999 端口号 */
     if(argc <= 1){
         printf("usage: %s port_number\n", argv[0]);
@@ -163,7 +163,7 @@ int main(int argc, char* argv[]){
     alarm(TIMESLOT);    /* 开启定时器 */
 
     while(!stop_server){
-        cout <<__FILE__ <<" "<<__LINE__<<endl;
+        //cout <<__FILE__ <<" "<<__LINE__<<endl;
         int number = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1); /* 此处，events是传出参数*/
 
         /* ENTR The call was interupted by a signal handler */
@@ -174,7 +174,7 @@ int main(int argc, char* argv[]){
 
         /* 遍历监听有事件的fd */
         for(int i = 0; i < number; i++){
-            cout <<__FILE__ <<" "<<__LINE__<<endl;
+            //cout <<__FILE__ <<" "<<__LINE__<<endl;
             int sockfd = events[i].data.fd;
             if(sockfd == listenfd){ 
                 /* new client connection */
@@ -241,7 +241,7 @@ int main(int argc, char* argv[]){
             (events[i].events & EPOLLHUP) ? "EPOLLHUP " : "",
             (events[i].events & EPOLLERR) ? "EPOLLERR " : "");
                 perror("event ");
-                printf("main.cpp : 172,--close_conn--\n");
+                //printf("main.cpp : 172,--close_conn--\n");
                 //服务器端关闭连接，移除对应的定时器
                 util_timer *timer = users_timer[sockfd].timer;
                 timer->cb_func(&users_timer[sockfd]);
@@ -253,7 +253,7 @@ int main(int argc, char* argv[]){
             }else if((sockfd == pipefd[0]) && (events[i].events & EPOLLIN)){
                 /* 有定时器超时触发SIGARM信号，往管道写数据，触发EPOLLIN检测写事件 */
                 /* 处理sig信号(从管道中读取信号信息) */
-                printf("main.cpp:176, pipefd[0]\n");
+                //printf("main.cpp:176, pipefd[0]\n");
                 int sig;
                 char signals[1024]; /* 一个信号，一个char */
                 ret = recv(pipefd[0], signals, sizeof(signals), 0);
