@@ -108,6 +108,7 @@ private:
 public:
     static int m_epollfd;   /* 所有的socket事件被注册到同一个epoll内核中，设置为静态 */
     static int m_user_count;    /* 统计用户数量 */
+    MYSQL *mysql;
 
 private:
     int m_sockfd;   /* 该http连接的socket */
@@ -140,7 +141,6 @@ private:
 
     int cgi;    /* 是否启用POST */
     char* m_string;     /* 存储消息体数据 */
-    MYSQL *mysql;
 };
 
 #endif

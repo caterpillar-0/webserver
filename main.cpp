@@ -100,7 +100,7 @@ int main(int argc, char* argv[]){
     /* 初始化线程池 */
     threadpool<http_conn> *pool = nullptr;
     try{
-        pool = new threadpool<http_conn>;
+        pool = new threadpool<http_conn>(connPool);
     } catch( ... ){
         return 1;
     }

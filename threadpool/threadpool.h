@@ -5,6 +5,7 @@
 #include <list>
 #include <stdio.h>
 #include "../locker/locker.h"
+#include "../CGImysql/sql_connection_pool.h"
 
 /* 定义线程池类,模板类，任务不同也可以复用 */
 template <typename T>
@@ -20,6 +21,7 @@ private:
     sem m_quesem;   /* 保护队列的信号量 */
 
     bool m_stop;
+    connection_pool *m_connPool;  //数据库
 
 private:
 /*
@@ -30,7 +32,7 @@ private:
     void run();
 
 public:
-    threadpool(int pthread_num = 8, int max_request = 10000);
+    threadpool(connection_pool *connPool, int pthread_num = 8, int max_request = 10000);
     ~threadpool();
     bool append(T* request);    /* 添加任务到任务队列 */
 };
@@ -39,10 +41,8 @@ public:
 /* template class number function */
 
 template <typename T>
-threadpool<T>::threadpool(int pthread_num, int max_request):
-m_pthread_num(pthread_num), m_max_request(max_request), 
-m_stop(false)
-{
+threadpool<T>::threadpool(connection_pool *connPool, int pthread_num, int max_request):
+m_pthread_num(pthread_num), m_max_request(max_request), m_connPool(connPool),m_stop(false){
     /* check argument */
     if(pthread_num <= 0 || max_request <= 0){
         throw std::exception();
@@ -71,6 +71,7 @@ m_stop(false)
 template <typename T>
 threadpool<T>::~threadpool(){
     delete []m_threads;
+    m_stop = true;
 }
 
 template <typename T>
@@ -111,6 +112,7 @@ void threadpool<T>::run(){
         if(!request){
             continue;
         }
+        connectionRAII mysqlconn(&request->mysql, m_connPool);
         request->process(); /* 调用任务函数 */
         printf("processing...\n");
     }
