@@ -48,7 +48,7 @@ MYSQL * connection_pool::GetConnection(){
     if(0 == connlist.size()){
         return nullptr;
     }
-    reserve.wait();
+    reserve.wait();//-1操作，如果为0就阻塞
     lock.lock();
     con = connlist.front();
     connlist.pop_front();

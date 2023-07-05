@@ -89,6 +89,7 @@ bool threadpool<T>::append(T* request){
     return true;
 }
 
+//传入this指针；
 template <typename T>
 void *threadpool<T>:: worker(void* arg){
     threadpool* pool = (threadpool*)arg;
@@ -100,7 +101,7 @@ template <typename T>
 void threadpool<T>::run(){
     /* 从任务队列中取任务执行 */
     while(true){
-        m_quesem.wait();    /* 阻塞等待唤醒 */
+        m_quesem.wait();    /* 阻塞等待唤醒 ，-1操作，如果是0，就阻塞 */
         m_quelocker.lock();
         if(m_workque.empty()){
             m_quelocker.unlock();

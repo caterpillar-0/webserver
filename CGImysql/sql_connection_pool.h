@@ -18,6 +18,7 @@ class connection_pool
 public:
     void init(string url, string User, string PassWord, string DataBaseName, int Port, unsigned int MaxConn);
     /* 单例模式 */
+    //此处一定是static，因为不能new实例，这个public函数接口，一定是属于类的，即类可以直接调用，因此是static；
     static connection_pool*  GetInstance(){
         static connection_pool connPool;
         return &connPool;
@@ -43,7 +44,7 @@ private:
 private:
     locker lock;
     list<MYSQL*> connlist;  /* 连接池 */
-    sem reserve;
+    sem reserve;//信号量
 
 private:
     string m_url; /* 主机地址 */

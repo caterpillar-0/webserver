@@ -96,7 +96,7 @@ int main(int argc, char* argv[]){
     /* 创建数据库连接池 */
     connection_pool *connPool = connection_pool::GetInstance();
     connPool->init("192.168.52.129", "ser", "Xiemaomao123@", "yourdb", 3306, 8);
-    cout <<__FILE__ <<" "<<__LINE__<<endl;
+    cout <<__FILE__ <<" "<<__LINE__ << " mysql connection success "<<endl;
     /* 初始化线程池 */
     threadpool<http_conn> *pool = nullptr;
     try{
@@ -113,7 +113,7 @@ int main(int argc, char* argv[]){
     }
     //初始化数据库读取表
     users->initmysql_result(connPool);
-    cout <<__FILE__ <<" "<<__LINE__<<endl;
+    cout <<__FILE__ <<" "<<__LINE__ << " mysql init success" <<endl;
 
     struct sockaddr_in saddr;
     saddr.sin_family = AF_INET;
@@ -137,7 +137,6 @@ int main(int argc, char* argv[]){
         perror("listen");
         return -1;
     }
-
     /* 设置epoll,epoll底层是红黑树和双向链表，其中epoll_wait返回传出参数 */
     epoll_event events[MAX_EVENT_NUMBER];
     int epollfd = epoll_create(5);      /* 随便一个数即可，无意义 */
@@ -163,9 +162,8 @@ int main(int argc, char* argv[]){
     alarm(TIMESLOT);    /* 开启定时器 */
 
     while(!stop_server){
-        //cout <<__FILE__ <<" "<<__LINE__<<endl;
+       
         int number = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1); /* 此处，events是传出参数*/
-
         /* ENTR The call was interupted by a signal handler */
         if((number < 0) && (errno != EINTR)){
             printf("epoll_wait failure\n");     
@@ -174,7 +172,6 @@ int main(int argc, char* argv[]){
 
         /* 遍历监听有事件的fd */
         for(int i = 0; i < number; i++){
-            //cout <<__FILE__ <<" "<<__LINE__<<endl;
             int sockfd = events[i].data.fd;
             if(sockfd == listenfd){ 
                 /* new client connection */
